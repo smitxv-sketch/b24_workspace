@@ -7,6 +7,7 @@ import { PlanningView } from './planning/PlanningView.jsx'
 import { HeatmapView } from './heatmap/HeatmapView.jsx'
 
 export function ReportsScreen() {
+  const autoSwitchedHeatmapRef = React.useRef(false)
   const {
     reportsData,
     reportsDeptId,
@@ -127,6 +128,15 @@ export function ReportsScreen() {
     }
   }, [heatmapEnabled, reportsView, setReportsView])
 
+  React.useEffect(() => {
+    if (!heatmapEnabled) return
+    if (autoSwitchedHeatmapRef.current) return
+    autoSwitchedHeatmapRef.current = true
+    if (reportsView !== 'heatmap') {
+      setReportsView('heatmap')
+    }
+  }, [heatmapEnabled, reportsView, setReportsView])
+
   const projectScopedRows = React.useMemo(
     () => filterRowsByProject(sourceRows, reportsProjectId),
     [sourceRows, reportsProjectId]
@@ -225,9 +235,9 @@ export function ReportsScreen() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ ...cardStyle, paddingBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#6e6e73' }}>Представление</span>
-                <select value={reportsView} onChange={(e) => setReportsView(e.target.value)} style={{ ...inputStyle, width: 220, padding: '6px 8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 16, color: '#1d1d1f', fontWeight: 700 }}>Представление</span>
+                <select value={reportsView} onChange={(e) => setReportsView(e.target.value)} style={{ ...inputStyle, width: 280, padding: '10px 12px', fontSize: 15, fontWeight: 600 }}>
                   <option value="workload">Трудозатраты</option>
                   <option value="occupancy">Занятость</option>
                   <option value="planning">Планирование Задачи/день</option>
@@ -258,7 +268,9 @@ export function ReportsScreen() {
 
           {isLoadingReports && <div style={infoStyle}>Загрузка отчёта...</div>}
           {reportsError && <div style={{ ...infoStyle, color: '#d70015' }}>Ошибка: {reportsError}</div>}
-          {!isLoadingReports && !reportsError && sourceRows.length === 0 && <div style={infoStyle}>Нет данных за выбранные фильтры.</div>}
+          {!isLoadingReports && !reportsError && reportsView !== 'planning' && reportsView !== 'heatmap' && sourceRows.length === 0 && (
+            <div style={infoStyle}>Нет данных за выбранные фильтры.</div>
+          )}
 
           {!isLoadingReports && !reportsError && sourceRows.length > 0 && reportsView === 'workload' && (
             <div style={{ display: 'grid', gap: 12 }}>

@@ -8,8 +8,9 @@ function wsPlanningBuildTimeline(string $scale): array {
     $today = new \DateTimeImmutable('today');
 
     if ($scale === 'week') {
+        // today ~30% ширины: 6 из 20 недель.
         $past = 6;
-        $future = 18;
+        $future = 13;
         $todayWeekStart = wsStartOfWeek($today);
         $from = $todayWeekStart->modify("-{$past} weeks");
         $to = $todayWeekStart->modify('+' . ($future) . ' weeks');
@@ -38,13 +39,14 @@ function wsPlanningBuildTimeline(string $scale): array {
             'timeline' => $timeline,
             'today_index' => $todayIndex,
             'range' => ['from' => $timeline[0]['from'], 'to' => $timeline[count($timeline) - 1]['to']],
-            'anchor_quarter_index' => (int)floor((count($timeline) - 1) / 4),
+            'anchor_quarter_index' => (int)round((count($timeline) - 1) * 0.30),
         ];
     }
 
     if ($scale === 'month') {
+        // today ~30% ширины: 4 из 13 месяцев.
         $past = 4;
-        $future = 14;
+        $future = 8;
         $todayMonth = new \DateTimeImmutable($today->format('Y-m-01'));
         $from = $todayMonth->modify("-{$past} months");
         $to = $todayMonth->modify('+' . ($future) . ' months');
@@ -73,13 +75,14 @@ function wsPlanningBuildTimeline(string $scale): array {
             'timeline' => $timeline,
             'today_index' => $todayIndex,
             'range' => ['from' => $timeline[0]['from'], 'to' => $timeline[count($timeline) - 1]['to']],
-            'anchor_quarter_index' => (int)floor((count($timeline) - 1) / 4),
+            'anchor_quarter_index' => (int)round((count($timeline) - 1) * 0.30),
         ];
     }
 
     // По умолчанию day.
+    // today ~30% ширины: 21 из 70 дней.
     $past = 21;
-    $future = 63;
+    $future = 49;
     $from = $today->modify("-{$past} days");
     $to = $today->modify("+{$future} days");
     $timeline = [];
@@ -106,7 +109,7 @@ function wsPlanningBuildTimeline(string $scale): array {
         'timeline' => $timeline,
         'today_index' => $todayIndex,
         'range' => ['from' => $timeline[0]['from'], 'to' => $timeline[count($timeline) - 1]['to']],
-        'anchor_quarter_index' => (int)floor((count($timeline) - 1) / 4),
+        'anchor_quarter_index' => (int)round((count($timeline) - 1) * 0.30),
     ];
 }
 

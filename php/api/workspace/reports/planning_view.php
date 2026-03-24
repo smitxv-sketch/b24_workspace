@@ -9,7 +9,6 @@ function wsBuildPlanningView(array $options): array {
     $selectedDeptId = (int)($options['selected_dept_id'] ?? 0);
     $deptScope = array_map('intval', (array)($options['dept_scope'] ?? []));
     $planningScale = (string)($options['planning_scale'] ?? 'day');
-    $dateFilters = (array)($options['date_filters'] ?? []);
     $taskFieldMap = (array)($options['task_field_map'] ?? []);
 
     $timelineCfg = wsPlanningBuildTimeline($planningScale);
@@ -47,7 +46,6 @@ function wsBuildPlanningView(array $options): array {
     $deadlineExpr = !empty($taskFieldMap['deadline']) ? 't.DEADLINE' : 'NULL';
     $createdExpr = !empty($taskFieldMap['created_date']) ? 't.CREATED_DATE' : 'NULL';
     $closedExpr = !empty($taskFieldMap['closed_date']) ? 't.CLOSED_DATE' : 'NULL';
-    $taskDateWhereSql = wsBuildTaskDateWhereSql('t', $dateFilters);
 
     $sql = "
         SELECT
@@ -70,7 +68,6 @@ function wsBuildPlanningView(array $options): array {
           AND t.END_DATE_PLAN IS NOT NULL
           AND t.END_DATE_PLAN >= '{$safeFrom}'
           AND t.START_DATE_PLAN <= '{$safeTo}'
-          {$taskDateWhereSql}
         ORDER BY t.RESPONSIBLE_ID ASC, t.START_DATE_PLAN ASC, t.TITLE ASC
     ";
     WsDiag::add('reports_planning_sql', ['sql' => $sql, 'scale' => $planningScale], 2);
