@@ -4,12 +4,8 @@
  * Меняем базовые директории только здесь.
  */
 
-// Кандидаты корня bproc для разных схем деплоя.
-const WS_BPROC_ROOT_CANDIDATES = [
-    '/local/bproc',
-    '/local/ws/bproc',
-    '/local/ws/php/bproc',
-];
+// SSOT: конфиги и lib bproc живут тут.
+const WS_BPROC_ROOT = '/local/bproc';
 
 /**
  * Преобразует веб-путь в абсолютный путь на файловой системе.
@@ -18,19 +14,8 @@ function wsDocPath(string $webPath): string {
     return rtrim($_SERVER['DOCUMENT_ROOT'] ?? '', '/') . $webPath;
 }
 
-/**
- * Возвращает актуальный web-root для bproc.
- * Ищем по ключевому файлу lib/BpLog.php.
- */
 function wsBprocRoot(): string {
-    foreach (WS_BPROC_ROOT_CANDIDATES as $candidate) {
-        if (file_exists(wsDocPath($candidate . '/lib/BpLog.php'))) {
-            return $candidate;
-        }
-    }
-
-    // Фолбэк на исторический путь.
-    return '/local/bproc';
+    return WS_BPROC_ROOT;
 }
 
 function wsBprocLibRoot(): string {

@@ -4,6 +4,42 @@
  * Подключается через require_once __DIR__ . '/_shared.php';
  */
 
+// ── Единая диагностика (SSOT) ──────────────────────────────────────────────
+final class WsDiag {
+    private static array $events = [];
+
+    public static function enabled(): bool {
+        // Можно включить явно: ?ws_diag=Y
+        // Или использовать админский debug: ?debug=Y (если WS_DEBUG=true в endpoint).
+        return (($_GET['ws_diag'] ?? 'N') === 'Y') || (defined('WS_DEBUG') && WS_DEBUG);
+    }
+
+    public static function level(): int {
+        $level = (int)($_GET['ws_diag_level'] ?? 1);
+        // 1 — минимум, 2 — расширенный, 3 — очень подробный.
+        return max(1, min(3, $level));
+    }
+
+    public static function add(string $code, array $data = [], int $minLevel = 1): void {
+        if (!self::enabled() || self::level() < $minLevel) return;
+        self::$events[] = [
+            'ts'   => date('c'),
+            'code' => $code,
+            'data' => $data,
+        ];
+    }
+
+    public static function dump(): array {
+        if (!self::enabled()) return [];
+        return [
+            'diag_enabled' => true,
+            'diag_level'   => self::level(),
+            'request_uri'  => $_SERVER['REQUEST_URI'] ?? null,
+            'events'       => self::$events,
+        ];
+    }
+}
+
 // ── HTTP хелперы ──────────────────────────────────────────────────────────
 
 function wsJsonOk(array $data): void {
@@ -20,7 +56,10 @@ function wsJsonOk(array $data): void {
 
 function wsJsonErr(string $msg, int $code = 400): void {
     http_response_code($code);
-    echo json_encode(['status' => 'error', 'message' => $msg], JSON_UNESCAPED_UNICODE);
+    $r = ['status' => 'error', 'message' => $msg];
+    $diag = WsDiag::dump();
+    if (!empty($diag)) $r['debug'] = $diag;
+    echo json_encode($r, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -29,7 +68,8 @@ function wsJsonErr(string $msg, int $code = 400): void {
 function wsLoadWorkspaceConfig(string $processKey): ?array {
     $safe = preg_replace('/[^a-z0-9_]/', '', $processKey);
     // Путь к workspace-конфигу процесса берём из единого реестра путей.
-    $path = wsDocPath(WS_BPROC_PROCESSES_DIR . '/' . $safe . '_workspace.php');
+    $path = wsDocPath(wsBprocProcessesDir() . '/' . $safe . '_workspace.php');
+    WsDiag::add('workspace_config_check', ['process_key' => $safe, 'path' => $path, 'exists' => file_exists($path)]);
     if (!file_exists($path)) return null;
     $cfg = require $path;
     return is_array($cfg) ? $cfg : null;
@@ -37,17 +77,24 @@ function wsLoadWorkspaceConfig(string $processKey): ?array {
 
 function wsLoadProcessConfig(string $processKey): ?array {
     $safe = preg_replace('/[^a-z0-9_]/', '', $processKey);
+    WsDiag::add('process_config_start', ['process_key' => $safe], 2);
 
     // Сначала пробуем стандартный проектный хелпер, если он подключен в окружении.
     if (function_exists('findProcessConfig')) {
+        WsDiag::add('process_config_findProcessConfig_call', ['process_key' => $safe], 2);
         $cfg = findProcessConfig($safe);
         if (is_array($cfg) && isset($cfg['config']) && is_array($cfg['config'])) {
+            WsDiag::add('process_config_findProcessConfig_ok', ['process_key' => $safe], 2);
             return $cfg['config'];
         }
+        WsDiag::add('process_config_findProcessConfig_miss', ['process_key' => $safe], 2);
+    } else {
+        WsDiag::add('process_config_findProcessConfig_absent', [], 2);
     }
 
     // Fallback: читаем основной конфиг напрямую из /local/bproc/processes/<key>.php
-    $path = wsDocPath(WS_BPROC_PROCESSES_DIR . '/' . $safe . '.php');
+    $path = wsDocPath(wsBprocProcessesDir() . '/' . $safe . '.php');
+    WsDiag::add('process_config_file_check', ['process_key' => $safe, 'path' => $path, 'exists' => file_exists($path)]);
     if (!file_exists($path)) return null;
 
     $cfg = require $path;
@@ -59,11 +106,34 @@ function wsLoadProcessConfig(string $processKey): ?array {
 
 function wsLoadRoleProfile(string $roleKey): array {
     $safe = preg_replace('/[^a-z0-9_]/', '', strtolower($roleKey));
-    $path = wsDocPath(WS_BPROC_ROLES_DIR . '/' . $safe . '.php');
-    if (!file_exists($path)) $path = wsDocPath(WS_BPROC_ROLES_DIR . '/_default.php');
+    $path = wsDocPath(wsBprocRolesDir() . '/' . $safe . '.php');
+    if (!file_exists($path)) $path = wsDocPath(wsBprocRolesDir() . '/_default.php');
+    WsDiag::add('role_profile_check', ['role_key' => $safe, 'path' => $path, 'exists' => file_exists($path)], 2);
     if (!file_exists($path)) return ['role_key'=>'_default','label'=>'Сотрудник','processes'=>[],'analytics_processes'=>[]];
     $cfg = require $path;
     return is_array($cfg) ? $cfg : [];
+}
+
+/**
+ * Единая точка проверки process-конфигов для endpoint'ов.
+ * При ошибке сам вернет wsJsonErr с детальной диагностикой (если включена).
+ */
+function wsRequireProcessConfigs(string $processKey): array {
+    $wsCfg = wsLoadWorkspaceConfig($processKey);
+    $cfg   = wsLoadProcessConfig($processKey);
+
+    WsDiag::add('process_config_result', [
+        'process_key' => $processKey,
+        'workspace_config_found' => $wsCfg !== null,
+        'process_config_found'   => $cfg !== null,
+        'bproc_root'             => wsBprocRoot(),
+    ]);
+
+    if (!$wsCfg || !$cfg) {
+        wsJsonErr('process_not_found', 404);
+    }
+
+    return [$wsCfg, $cfg];
 }
 
 // ── Вычисления ────────────────────────────────────────────────────────────

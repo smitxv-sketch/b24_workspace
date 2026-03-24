@@ -11,9 +11,10 @@ define('NOT_CHECK_PERMISSIONS', true);
 
 require_once __DIR__ . '/_paths.php';
 require_once wsDocPath('/bitrix/modules/main/include/prolog_before.php');
-require_once wsDocPath(WS_BPROC_LIB_ROOT . '/BpLog.php');
-require_once wsDocPath(WS_BPROC_LIB_ROOT . '/BpStorage.php');
-require_once wsDocPath(WS_BPROC_ROOT . '/config_bp_constants.php');
+require_once wsDocPath(wsBprocLibRoot() . '/BpLog.php');
+require_once wsDocPath(wsBprocLibRoot() . '/BpStorage.php');
+require_once wsDocPath(wsBprocRoot() . '/config_bp_constants.php');
+require_once __DIR__ . '/_shared.php';
 
 // ── Инициализация логирования ─────────────────────────────────────────────
 BpLog::registerFatalHandler('ws_bootstrap');
@@ -45,7 +46,12 @@ function jsonOk(array $data): void {
 }
 function jsonErr(string $msg, int $code = 400): void {
     http_response_code($code);
-    echo json_encode(['status' => 'error', 'message' => $msg], JSON_UNESCAPED_UNICODE);
+    $r = ['status' => 'error', 'message' => $msg];
+    if (class_exists('WsDiag')) {
+        $diag = WsDiag::dump();
+        if (!empty($diag)) $r['debug'] = $diag;
+    }
+    echo json_encode($r, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -103,9 +109,12 @@ try {
 function loadWorkspaceRoleProfile(string $roleKey): array {
     $safe = preg_replace('/[^a-z0-9_]/', '', strtolower($roleKey));
     // Пути берём из SSOT-файла _paths.php
-    $path = wsDocPath(WS_BPROC_ROLES_DIR . '/' . $safe . '.php');
+    $path = wsDocPath(wsBprocRolesDir() . '/' . $safe . '.php');
     if (!file_exists($path)) {
-        $path = wsDocPath(WS_BPROC_ROLES_DIR . '/_default.php');
+        $path = wsDocPath(wsBprocRolesDir() . '/_default.php');
+    }
+    if (class_exists('WsDiag')) {
+        WsDiag::add('bootstrap_role_profile_check', ['role_key' => $safe, 'path' => $path, 'exists' => file_exists($path)], 2);
     }
     if (!file_exists($path)) {
         return ['role_key' => '_default', 'label' => 'Сотрудник', 'processes' => [], 'analytics_processes' => []];
@@ -116,7 +125,10 @@ function loadWorkspaceRoleProfile(string $roleKey): array {
 
 function loadWorkspaceConfig(string $processKey): ?array {
     $safe = preg_replace('/[^a-z0-9_]/', '', $processKey);
-    $path = wsDocPath(WS_BPROC_PROCESSES_DIR . '/' . $safe . '_workspace.php');
+    $path = wsDocPath(wsBprocProcessesDir() . '/' . $safe . '_workspace.php');
+    if (class_exists('WsDiag')) {
+        WsDiag::add('bootstrap_workspace_config_check', ['process_key' => $safe, 'path' => $path, 'exists' => file_exists($path)]);
+    }
     if (!file_exists($path)) return null;
     $cfg = require $path;
     return is_array($cfg) ? $cfg : null;

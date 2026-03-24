@@ -42,9 +42,7 @@ try {
     if (!$entityId || !$processKey) wsJsonErr('params_required');
 
     // 1. Загружаем конфиги
-    $wsCfg   = wsLoadWorkspaceConfig($processKey);
-    $config  = wsLoadProcessConfig($processKey);
-    if (!$wsCfg || !$config) wsJsonErr('process_not_found', 404);
+    [$wsCfg, $config] = wsRequireProcessConfigs($processKey);
 
     $entityTypeId = $config['match']['entityTypeId'] ?? 2;
 

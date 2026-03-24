@@ -39,9 +39,7 @@ try {
 
     if (!$processKey) wsJsonErr('process_key_required');
 
-    $wsCfg   = wsLoadWorkspaceConfig($processKey);
-    $config  = wsLoadProcessConfig($processKey);
-    if (!$wsCfg || !$config) wsJsonErr('process_not_found', 404);
+    [$wsCfg, $config] = wsRequireProcessConfigs($processKey);
 
     $entityTypeId = $config['match']['entityTypeId'] ?? 2;
     $categoryId   = $config['match']['categoryId'] ?? 1;
