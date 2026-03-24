@@ -2,7 +2,7 @@
  * api/client.js — базовый fetch-клиент для workspace API
  */
 
-const BASE = '/local/api/workspace'
+const BASE = '/local/ws/api/workspace'
 
 async function apiFetch(endpoint, params = {}) {
   const url = new URL(BASE + endpoint, window.location.origin)
@@ -35,4 +35,12 @@ export const api = {
   processItems: (processKey, filter = 'all') => apiFetch('/process_items.php', { process_key: processKey, filter }),
   dealDetail:   (entityId, processKey)     => apiFetch('/deal_detail.php', { entity_id: entityId, process_key: processKey }),
   analytics:    (processKey, period = 'month') => apiFetch('/analytics.php', { process_key: processKey, period }),
+  reports:      (params = {})              => apiFetch('/reports.php', params),
+  reportsCsvUrl: (params = {}) => {
+    const url = new URL(BASE + '/reports.php', window.location.origin)
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v)
+    })
+    return url.toString()
+  },
 }

@@ -15,6 +15,7 @@ require_once wsDocPath(wsBprocLibRoot() . '/BpLog.php');
 require_once wsDocPath(wsBprocLibRoot() . '/BpStorage.php');
 require_once wsDocPath(wsBprocRoot() . '/config_bp_constants.php');
 require_once __DIR__ . '/_shared.php';
+$wsAccessCfg = require __DIR__ . '/_access.php';
 
 // ── Инициализация логирования ─────────────────────────────────────────────
 BpLog::registerFatalHandler('ws_bootstrap');
@@ -64,14 +65,52 @@ try {
     if (!$userRow) jsonErr('user_not_found', 404);
 
     $userName      = trim($userRow['NAME'] . ' ' . $userRow['LAST_NAME']);
-    $workspaceRole = trim($userRow['UF_USR_1774331641609'] ?? '') ?: '_default';
+    $workspaceRoleRaw = trim($userRow['UF_USR_1774331641609'] ?? '') ?: '_default';
+    $workspaceRoles = parseWorkspaceRoles($workspaceRoleRaw);
+    $userGroupIds = getUserGroupIds($currentUserId);
+    $dealTkpGroupId = (int)($wsAccessCfg['deal_tkp_group_id'] ?? 0);
+    $reportsGroupId = (int)($wsAccessCfg['reports_group_id'] ?? 0);
+    $canDealTkpByGroup = $dealTkpGroupId > 0 && in_array($dealTkpGroupId, $userGroupIds, true);
+    $canReportsByGroup = $reportsGroupId > 0 && in_array($reportsGroupId, $userGroupIds, true);
+
+    if (class_exists('WsDiag')) {
+        WsDiag::add('bootstrap_group_access', [
+            'user_id' => $currentUserId,
+            'group_ids' => $userGroupIds,
+            'deal_tkp_group_id' => $dealTkpGroupId,
+            'reports_group_id' => $reportsGroupId,
+            'can_deal_tkp' => $canDealTkpByGroup,
+            'can_reports' => $canReportsByGroup,
+        ], 2);
+    }
 
     // 2. Профиль роли воркспейса
-    $roleProfile = loadWorkspaceRoleProfile($workspaceRole);
+    $roleProfile = loadWorkspaceRoleProfileMulti($workspaceRoles);
+
+    // Группы могут явно добавлять доступ к ключевым разделам, даже если в UF-роли их нет.
+    if ($canDealTkpByGroup) {
+        $roleProfile['processes']['deal_tkp'] = $roleProfile['processes']['deal_tkp'] ?? ['label' => 'Заявки ТКП', 'icon' => 'grid'];
+        if (!in_array('deal_tkp', (array)($roleProfile['analytics_processes'] ?? []), true)) {
+            $roleProfile['analytics_processes'][] = 'deal_tkp';
+        }
+    }
+    if ($canReportsByGroup) {
+        $roleProfile['processes']['reports'] = $roleProfile['processes']['reports'] ?? ['label' => 'Отчёты', 'icon' => 'chart'];
+    }
 
     // 3. Формируем навигацию
     $nav = [];
     foreach ($roleProfile['processes'] ?? [] as $processKey => $processDef) {
+        // Доступ к разделам ограничиваем группами:
+        // - "Заявки ТКП" только для группы 19
+        // - "Отчёты" только для группы 10 (Руководство)
+        if ($processKey === 'deal_tkp' && !$canDealTkpByGroup) {
+            continue;
+        }
+        if ($processKey === 'reports' && !$canReportsByGroup) {
+            continue;
+        }
+
         $wsCfg = loadWorkspaceConfig($processKey);
         $badge = $wsCfg ? computeBadge($processKey, $wsCfg, $currentUserId) : 0;
 
@@ -86,13 +125,21 @@ try {
     }
 
     // Таб аналитики — если есть хоть один процесс с аналитикой
-    $canAnalytics = !empty($roleProfile['analytics_processes']);
+    $allowedProcessKeys = array_column($nav, 'key');
+    $canAnalytics = false;
+    foreach (($roleProfile['analytics_processes'] ?? []) as $analyticsKey) {
+        if (in_array($analyticsKey, $allowedProcessKeys, true)) {
+            $canAnalytics = true;
+            break;
+        }
+    }
 
     jsonOk([
         'user' => [
             'id'                   => $currentUserId,
             'name'                 => $userName,
-            'workspace_role'       => $workspaceRole,
+            'workspace_role'       => implode(',', $workspaceRoles),
+            'workspace_roles'      => $workspaceRoles,
             'workspace_role_label' => $roleProfile['label'] ?? $workspaceRole,
         ],
         'nav'          => $nav,
@@ -106,19 +153,43 @@ try {
 
 // ── Вспомогательные функции ───────────────────────────────────────────────
 
-function loadWorkspaceRoleProfile(string $roleKey): array {
+function parseWorkspaceRoles(string $raw): array {
+    $parts = preg_split('/[,\s;]+/', strtolower(trim($raw))) ?: [];
+    $roles = [];
+    foreach ($parts as $p) {
+        $safe = preg_replace('/[^a-z0-9_]/', '', $p);
+        if ($safe === '') continue;
+        // Обратная совместимость с исторической опечаткой.
+        if ($safe === 'cheaf') $safe = 'chief';
+        $roles[$safe] = true;
+    }
+    if (empty($roles)) $roles['_default'] = true;
+    return array_keys($roles);
+}
+
+function loadWorkspaceRoleProfileMulti(array $roleKeys): array {
+    $merged = ['role_key' => implode(',', $roleKeys), 'label' => 'Сотрудник', 'processes' => [], 'analytics_processes' => []];
+    $labels = [];
+    foreach ($roleKeys as $roleKey) {
+        $cfg = loadWorkspaceRoleProfileSingle($roleKey);
+        if (!empty($cfg['label'])) $labels[] = (string)$cfg['label'];
+        foreach (($cfg['processes'] ?? []) as $k => $v) {
+            $merged['processes'][$k] = $v;
+        }
+        foreach (($cfg['analytics_processes'] ?? []) as $k) {
+            if (!in_array($k, $merged['analytics_processes'], true)) $merged['analytics_processes'][] = $k;
+        }
+    }
+    if (!empty($labels)) $merged['label'] = implode(' + ', array_unique($labels));
+    return $merged;
+}
+
+function loadWorkspaceRoleProfileSingle(string $roleKey): array {
     $safe = preg_replace('/[^a-z0-9_]/', '', strtolower($roleKey));
-    // Пути берём из SSOT-файла _paths.php
     $path = wsDocPath(wsBprocRolesDir() . '/' . $safe . '.php');
-    if (!file_exists($path)) {
-        $path = wsDocPath(wsBprocRolesDir() . '/_default.php');
-    }
-    if (class_exists('WsDiag')) {
-        WsDiag::add('bootstrap_role_profile_check', ['role_key' => $safe, 'path' => $path, 'exists' => file_exists($path)], 2);
-    }
-    if (!file_exists($path)) {
-        return ['role_key' => '_default', 'label' => 'Сотрудник', 'processes' => [], 'analytics_processes' => []];
-    }
+    if (!file_exists($path)) $path = wsDocPath(wsBprocRolesDir() . '/_default.php');
+    if (class_exists('WsDiag')) WsDiag::add('bootstrap_role_profile_check', ['role_key' => $safe, 'path' => $path, 'exists' => file_exists($path)], 2);
+    if (!file_exists($path)) return ['role_key' => '_default', 'label' => 'Сотрудник', 'processes' => [], 'analytics_processes' => []];
     $cfg = require $path;
     return is_array($cfg) ? $cfg : [];
 }
@@ -132,6 +203,18 @@ function loadWorkspaceConfig(string $processKey): ?array {
     if (!file_exists($path)) return null;
     $cfg = require $path;
     return is_array($cfg) ? $cfg : null;
+}
+
+function getUserGroupIds(int $userId): array {
+    $ids = [];
+    if ($userId <= 0) return $ids;
+
+    $raw = \CUser::GetUserGroup($userId);
+    foreach ((array)$raw as $groupId) {
+        $gid = (int)$groupId;
+        if ($gid > 0) $ids[$gid] = true;
+    }
+    return array_keys($ids);
 }
 
 function computeBadge(string $processKey, array $wsCfg, int $userId): int {

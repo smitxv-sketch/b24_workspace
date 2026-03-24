@@ -40,16 +40,16 @@ return [
     ],
 
     // Поле суммы сделки
-    'amount_field' => 'UF_CONTRACT_AMOUNT',
+    'amount_field' => 'UF_CRM_1761043434',
 
-    // Статусы для воронки аналитики
-    // stage_id берётся из crmStagesSpecial конфига БП
+    // Статусы для воронки аналитики (только UI-метаданные).
+    // stage_id берётся из crmStagesSpecial в основном process-конфиге (SSOT).
     'funnel_statuses' => [
-        'won'                => ['label' => 'Взято в работу (WON)',   'color' => 'green',     'stage_id' => null],
-        'active'             => ['label' => 'Активных сейчас',        'color' => 'blue',      'stage_id' => null],
-        'customer_feedback'  => ['label' => 'Ожидание заказчика',     'color' => 'amber',     'stage_id' => 'C1:UC_MK98V5'],
-        'customer_postponed' => ['label' => 'Отложено заказчиком',    'color' => 'amber_dim', 'stage_id' => 'C1:UC_2W1UYL'],
-        'customer_rejected'  => ['label' => 'Отказ заказчика',        'color' => 'red',       'stage_id' => 'C1:LOSE'],
-        'tech_decision_fail' => ['label' => 'Откл. тех. директором',  'color' => 'red_dim',   'stage_id' => 'C1:6'],
+        'won'                => ['label' => 'Взято в работу (WON)',  'color' => 'green'],
+        'active'             => ['label' => 'Активных сейчас',       'color' => 'blue'],
+        'customer_feedback'  => ['label' => 'Ожидание заказчика',    'color' => 'amber'],
+        'customer_postponed' => ['label' => 'Отложено заказчиком',   'color' => 'amber_dim'],
+        'customer_rejected'  => ['label' => 'Отказ заказчика',       'color' => 'red'],
+        'tech_decision_fail' => ['label' => 'Откл. тех. директором', 'color' => 'red_dim'],
     ],
 ];

@@ -27,6 +27,7 @@ export function DealsScreen() {
     sub: { fontSize: 11, color: '#86868b', marginTop: 3, letterSpacing: '-.01em' },
     pills: { display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' },
     secLabel: { fontSize: 11, fontWeight: 700, color: '#86868b', textTransform: 'uppercase', letterSpacing: '.07em', margin: '4px 0 8px 2px' },
+    grid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 },
   }
 
   if (isLoadingItems && items.length === 0) return <Skeleton />
@@ -55,21 +56,27 @@ export function DealsScreen() {
       {bySection.attention.length > 0 && (
         <>
           <div style={s.secLabel}>Требуют внимания</div>
-          {bySection.attention.map(item => <DealCard key={item.id} item={item} />)}
+          <div style={s.grid}>
+            {bySection.attention.map(item => <DealCard key={item.id} item={item} />)}
+          </div>
         </>
       )}
 
       {bySection.active.length > 0 && (
         <>
           <div style={{ ...s.secLabel, marginTop: bySection.attention.length > 0 ? 10 : 0 }}>В работе</div>
-          {bySection.active.map(item => <DealCard key={item.id} item={item} />)}
+          <div style={s.grid}>
+            {bySection.active.map(item => <DealCard key={item.id} item={item} />)}
+          </div>
         </>
       )}
 
       {bySection.closed.length > 0 && (
         <>
           <div style={{ ...s.secLabel, marginTop: 10 }}>Закрыты</div>
-          {bySection.closed.map(item => <DealCard key={item.id} item={item} />)}
+          <div style={s.grid}>
+            {bySection.closed.map(item => <DealCard key={item.id} item={item} />)}
+          </div>
         </>
       )}
 

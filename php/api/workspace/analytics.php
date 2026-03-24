@@ -45,20 +45,60 @@ try {
     $categoryId   = $config['match']['categoryId'] ?? 1;
     $amountField  = $wsCfg['amount_field'] ?? 'UF_CONTRACT_AMOUNT';
     $stepsConfig  = $config['steps'] ?? [];
+    $fields       = collectFieldsFromConfig($config, $wsCfg);
 
     // Период
-    $periodFilter = $period === 'year'
-        ? ['start' => date('Y-01-01 00:00:00'), 'end' => date('Y-12-31 23:59:59'), 'label' => date('Y') . ' год']
-        : ['start' => date('Y-m-01 00:00:00'),  'end' => date('Y-m-t 23:59:59'),  'label' => iconv('windows-1251','utf-8',strftime('%B %Y'))];
+    if ($period === 'year') {
+        $periodFilter = ['start' => date('Y-01-01 00:00:00'), 'end' => date('Y-12-31 23:59:59'), 'label' => date('Y') . ' год'];
+    } else {
+        $months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+        $periodFilter = [
+            'start' => date('Y-m-01 00:00:00'),
+            'end'   => date('Y-m-t 23:59:59'),
+            'label' => $months[(int)date('n') - 1] . ' ' . date('Y'),
+        ];
+    }
 
     // Все сделки периода
     \Bitrix\Main\Loader::includeModule('crm');
-    $res = \CCrmDeal::GetListEx(
-        ['DATE_CREATE' => 'DESC'],
-        ['CATEGORY_ID' => $categoryId, '>=DATE_CREATE' => $periodFilter['start'], '<=DATE_CREATE' => $periodFilter['end'], 'CHECK_PERMISSIONS' => 'N'],
-        false, ['nPageSize' => 500],
-        ['ID', 'TITLE', 'STAGE_ID', 'STAGE_SEMANTIC_ID', $amountField]
-    );
+
+    // Базовый фильтр для выборки.
+    $crmFilter = [
+        'CATEGORY_ID'       => $categoryId,
+        '>=DATE_CREATE'     => (string)$periodFilter['start'],
+        '<=DATE_CREATE'     => (string)$periodFilter['end'],
+        'CHECK_PERMISSIONS' => 'N',
+    ];
+    WsDiag::add('analytics_query_filter_primary', ['filter' => $crmFilter], 2);
+
+    try {
+        $res = \CCrmDeal::GetListEx(
+            ['DATE_CREATE' => 'DESC'],
+            $crmFilter,
+            false, ['nPageSize' => 500],
+            $fields
+        );
+    } catch (\Bitrix\Main\DB\SqlQueryException $e) {
+        // На некоторых инсталляциях встречается SQL-ошибка по DATE_CREATE.
+        // Деградируем мягко: повторяем запрос без диапазона даты, чтобы не падать 500.
+        WsDiag::add('analytics_query_fallback_triggered', [
+            'reason' => $e->getMessage(),
+            'primary_filter' => $crmFilter,
+        ], 1);
+
+        $fallbackFilter = [
+            'CATEGORY_ID'       => $categoryId,
+            'CHECK_PERMISSIONS' => 'N',
+        ];
+        WsDiag::add('analytics_query_filter_fallback', ['filter' => $fallbackFilter], 1);
+
+        $res = \CCrmDeal::GetListEx(
+            ['DATE_CREATE' => 'DESC'],
+            $fallbackFilter,
+            false, ['nPageSize' => 500],
+            $fields
+        );
+    }
 
     $deals = [];
     while ($row = $res->Fetch()) $deals[] = $row;
@@ -68,11 +108,14 @@ try {
     $counts  = array_fill_keys(array_keys($funnelConfig), 0);
     $amounts = array_fill_keys(array_keys($funnelConfig), 0);
 
-    // Маппинг стадий
-    $stageToFunnel = []; // stage_id => funnel_key
-    foreach ($funnelConfig as $fKey => $fDef) {
-        if (!empty($fDef['stage_id'])) $stageToFunnel[$fDef['stage_id']] = $fKey;
-    }
+    // Маппинг стадий берём из process-конфига (SSOT):
+    // crmStagesSpecial: [funnel_key => stage_id], нам нужен [stage_id => funnel_key].
+    $crmStagesSpecial = $config['crmStagesSpecial'] ?? [];
+    $stageToFunnel = array_flip($crmStagesSpecial); // stage_id => funnel_key
+    WsDiag::add('analytics_stage_mapping', [
+        'crmStagesSpecial_keys' => array_keys($crmStagesSpecial),
+        'mapped_stage_ids' => array_keys($stageToFunnel),
+    ], 2);
 
     foreach ($deals as $deal) {
         $semantic = $deal['STAGE_SEMANTIC_ID'] ?? '';
@@ -171,6 +214,5 @@ try {
     ]);
 
 } catch (\Throwable $e) {
-    BpLog::error('ws_analytics', 'Fatal: ' . $e->getMessage(), ['line' => $e->getLine()]);
-    wsJsonErr('internal_error', 500);
+    wsHandleThrowable('ws_analytics', $e);
 }

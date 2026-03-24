@@ -13,6 +13,7 @@ return [
         'deal_tkp'        => ['label' => 'Заявки ТКП',  'icon' => 'grid'],
         'sp1070_contract' => ['label' => 'Договоры',     'icon' => 'doc'],
         'sp1058_project'  => ['label' => 'Проекты',      'icon' => 'clock'],
+        'reports'         => ['label' => 'Отчёты',       'icon' => 'chart'],
     ],
 
     'analytics_processes' => ['deal_tkp'],

@@ -76,16 +76,13 @@ try {
     // 6. Overdue
     $overdue = $currentStep ? computeOverdue($state, $stepsConfig, $currentStep) : ['is_overdue'=>false,'overdue_hours'=>0,'elapsed_hours'=>0];
 
-    // 7. Chips (Открыть в Б24 + папки)
+    // 7. Chips (Открыть в Б24 + основная папка сделки)
     $chips = [['label' => '↗ Открыть в Битрикс24', 'url' => '/crm/deal/details/' . $entityId . '/', 'style' => 'primary']];
-    foreach ($wsRoleCfg['folders'] as $folderKey) {
-        $diskId = (int)($rightsJson['folders'][$folderKey]['diskId'] ?? 0);
-        if ($diskId > 0) {
-            $url = getFolderUrl($diskId);
-            if ($url) {
-                $title = $config['folders'][$folderKey]['title'] ?? $folderKey;
-                $chips[] = ['label' => $title . ' →', 'url' => $url, 'style' => 'default'];
-            }
+    $dealRootFolderId = resolveDealRootFolderId($rightsJson, $wsRoleCfg);
+    if ($dealRootFolderId > 0) {
+        $dealRootUrl = getFolderUrl($dealRootFolderId);
+        if ($dealRootUrl) {
+            $chips[] = ['label' => '📁 Папка сделки', 'url' => $dealRootUrl, 'style' => 'default'];
         }
     }
 
@@ -127,42 +124,151 @@ try {
     ]);
 
 } catch (\Throwable $e) {
-    BpLog::error('ws_deal_detail', 'Fatal: ' . $e->getMessage(), ['line' => $e->getLine()]);
-    wsJsonErr('internal_error', 500);
+    wsHandleThrowable('ws_deal_detail', $e);
 }
 
 // ── Построители секций ────────────────────────────────────────────────────
 
 function buildAlert(array $state, array $stepsConfig, array $circleConfig, array $rolesConfig, array $deal, ?string $currentStep, array $overdue, RoleResolver $resolver, int $entityTypeId, int $entityId, int $currentUserId): ?array {
-    if (!$currentStep) return null;
+    // Служебные значения навигации завершённого процесса.
+    if (!$currentStep || in_array($currentStep, ['_done', '_complete'], true)) {
+        return [
+            'type'        => 'green',
+            'label'       => 'Процесс завершён',
+            'title'       => 'ТКП передан в работу',
+            'description' => 'Договор создан. Процесс ТКП успешно завершён.',
+            'can_submit'  => false,
+        ];
+    }
 
     $stepType  = $stepsConfig[$currentStep]['type'] ?? 'human';
     $stepLabel = $stepsConfig[$currentStep]['label'] ?? $currentStep;
 
-    // Пробуем найти задание БП
-    \Bitrix\Main\Loader::includeModule('bizproc');
-    $docType  = $entityTypeId === 2
-        ? ['crm', 'CCrmDocumentDeal', 'DEAL_' . $entityId]
-        : ['crm', 'Bitrix\Crm\Integration\BizProc\Document\Dynamic', 'DYNAMIC_' . $entityTypeId . '_' . $entityId];
+    // Ищем активные задания БП через прямой SQL к b_bp_task
+    // (совместимо с разными версиями коробки, где CBPDocument API может отсутствовать).
+    global $DB;
+    $safeUserId  = (int)$currentUserId;
+    $safeDocCode = $DB->ForSql(
+        $entityTypeId === 2
+            ? 'DEAL_' . $entityId
+            : 'DYNAMIC_' . $entityTypeId . '_' . $entityId
+    );
 
-    $bpTasks = \CBPDocument::GetUserTasksForDocument($currentUserId, $docType);
-    if (!is_array($bpTasks)) $bpTasks = [];
+    // Читаем схему таблиц, чтобы построить SQL совместимо с версией коробки.
+    $taskCols = [];
+    $taskColsRs = $DB->Query("SHOW COLUMNS FROM b_bp_task");
+    if ($taskColsRs) {
+        while ($c = $taskColsRs->Fetch()) $taskCols[] = (string)($c['Field'] ?? '');
+    }
+
+    $taskUserCols = [];
+    $taskUserColsRs = $DB->Query("SHOW COLUMNS FROM b_bp_task_user");
+    if ($taskUserColsRs) {
+        while ($c = $taskUserColsRs->Fetch()) $taskUserCols[] = (string)($c['Field'] ?? '');
+    }
+
+    $wfStateCols = [];
+    $wfStateColsRs = $DB->Query("SHOW COLUMNS FROM b_bp_workflow_state");
+    if ($wfStateColsRs) {
+        while ($c = $wfStateColsRs->Fetch()) $wfStateCols[] = (string)($c['Field'] ?? '');
+    }
+
+    WsDiag::add('bp_task_table_columns', ['columns' => $taskCols], 3);
+    WsDiag::add('bp_task_user_table_columns', ['columns' => $taskUserCols], 3);
+    WsDiag::add('bp_workflow_state_table_columns', ['columns' => $wfStateCols], 3);
+
+    $orderField = in_array('CREATED_DATE', $taskCols, true) ? 'CREATED_DATE' : 'ID';
+
+    $joins = [];
+    $where = ["t.STATUS = 0"];
+
+    // USER-фильтр через b_bp_task_user (в вашей схеме USER_ID лежит там).
+    if (in_array('TASK_ID', $taskUserCols, true) && in_array('USER_ID', $taskUserCols, true)) {
+        $joins[] = "INNER JOIN b_bp_task_user tu ON tu.TASK_ID = t.ID";
+        $where[] = "tu.USER_ID = {$safeUserId}";
+    }
+
+    // Фильтр по документу через b_bp_workflow_state.DOCUMENT_ID.
+    if (in_array('ID', $wfStateCols, true) && in_array('DOCUMENT_ID', $wfStateCols, true)) {
+        $joins[] = "INNER JOIN b_bp_workflow_state ws ON ws.ID = t.WORKFLOW_ID";
+        $where[] = "ws.DOCUMENT_ID LIKE '%{$safeDocCode}%'";
+    } elseif (in_array('DOCUMENT_NAME', $taskCols, true)) {
+        // Fallback для старых схем: пытаемся зацепиться по имени документа.
+        $where[] = "t.DOCUMENT_NAME LIKE '%{$safeDocCode}%'";
+    }
+
+    $sql =
+        "SELECT t.ID, t.WORKFLOW_ID, t.ACTIVITY, t.ACTIVITY_NAME, t.DESCRIPTION, t.PARAMETERS
+         FROM b_bp_task t
+         " . implode("\n", $joins) . "
+         WHERE " . implode("\n           AND ", $where) . "
+         ORDER BY t.{$orderField} DESC
+         LIMIT 5";
+
+    WsDiag::add('bp_task_query_strategy', [
+        'order_field' => $orderField,
+        'has_task_user_join' => in_array('TASK_ID', $taskUserCols, true) && in_array('USER_ID', $taskUserCols, true),
+        'has_workflow_state_join' => in_array('ID', $wfStateCols, true) && in_array('DOCUMENT_ID', $wfStateCols, true),
+        'doc_code' => $safeDocCode,
+    ], 2);
+
+    $rs = $DB->Query($sql);
+
+    $bpTasks = [];
+    if ($rs) {
+        while ($row = $rs->Fetch()) {
+            $parameters = [];
+            if (!empty($row['PARAMETERS'])) {
+                $p = @unserialize($row['PARAMETERS']);
+                $parameters = is_array($p) ? $p : [];
+            }
+
+            $bpTasks[] = [
+                'ID'          => $row['ID'],
+                'WORKFLOW_ID' => $row['WORKFLOW_ID'] ?? '',
+                'NAME'        => $row['ACTIVITY_NAME'] ?? '',
+                'DESCRIPTION' => $row['DESCRIPTION'] ?? '',
+                'PARAMETERS'  => $parameters,
+            ];
+        }
+    }
 
     if (!empty($bpTasks)) {
-        $task    = $bpTasks[0];
+        $task = $bpTasks[0];
+
+        // Очищаем BBCode из описания задания.
+        $desc = $task['DESCRIPTION'] ?? '';
+        $desc = preg_replace('/\[\/?(B|I|U|b|i|u)\]/', '', $desc);
+        $desc = preg_replace('/\[url=[^\]]*\]([^\[]*)\[\/url\]/i', '$1', $desc);
+        $desc = preg_replace('/\[[^\]]+\]/', '', $desc);
+        $desc = trim($desc);
+
+        // Заголовок берём из первой строки, остальное в description.
+        $lines = array_filter(explode("\n", $desc));
+        $title = array_shift($lines) ?: $stepLabel;
+        $desc  = implode("\n", $lines);
+
         $buttons = [];
         foreach ($task['PARAMETERS']['StatusList'] ?? [] as $code => $label) {
             $isReject = in_array(strtolower($code), ['reject','decline','no','отклонить'], true);
-            $buttons[] = ['code'=>$code,'label'=>$label,'style'=>$isReject?'danger':'primary','require_comment'=>$isReject];
+            $buttons[] = ['code' => $code, 'label' => $label, 'style' => $isReject ? 'danger' : 'primary'];
         }
+
+        // Формируем ссылку на активность БП.
+        $workflowId  = (string)($task['WORKFLOW_ID'] ?? '');
+        $activityUrl = $workflowId !== ''
+            ? 'https://' . $_SERVER['HTTP_HOST'] . '/company/personal/bizproc/' . $workflowId . '/?USER_ID=' . $currentUserId
+            : null;
+
         return [
             'type'        => $overdue['is_overdue'] ? 'red' : 'blue',
-            'label'       => $overdue['is_overdue'] ? 'Просрочено · ' . $overdue['overdue_hours'] . ' ч сверх дедлайна' : 'Ожидает вашего ответа',
-            'title'       => $task['NAME'] ?? $stepLabel,
-            'description' => $task['DESCRIPTION'] ?? '',
+            'label'       => $overdue['is_overdue'] ? 'Просрочено' : 'Ожидает вашего ответа',
+            'title'       => $title,
+            'description' => $desc,
             'can_submit'  => false, // действия только через Б24
             'task_id'     => (int)($task['ID'] ?? 0),
             'buttons'     => $buttons,
+            'activity_url'=> $activityUrl,
         ];
     }
 
@@ -430,4 +536,23 @@ function getFolderUrl(int $diskId): ?string {
     $encoded    = array_map('rawurlencode', $parts);
     $encoded[]  = rawurlencode($folder->getName());
     return 'https://' . $_SERVER['HTTP_HOST'] . '/' . implode('/', $encoded) . '/';
+}
+
+function resolveDealRootFolderId(array $rightsJson, array $wsRoleCfg): int {
+    if (!\Bitrix\Main\Loader::includeModule('disk')) return 0;
+
+    // Берём первый доступный folder key из роли и ищем его parent (на уровень выше).
+    foreach (($wsRoleCfg['folders'] ?? []) as $folderKey) {
+        $diskId = (int)($rightsJson['folders'][$folderKey]['diskId'] ?? 0);
+        if ($diskId <= 0) continue;
+
+        $folder = \Bitrix\Disk\Folder::getById($diskId);
+        if (!$folder) continue;
+
+        $parentId = (int)$folder->getParentId();
+        if ($parentId > 0) return $parentId;
+        return $diskId;
+    }
+
+    return 0;
 }

@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   // При сборке для Битрикса — ставим base на путь приложения
-  // base: '/local/app/workspace/',
+  base: '/local/ws/front/',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
@@ -14,14 +14,16 @@ export default defineConfig({
       }
     }
   },
-  server: {
-    // Прокси на Битрикс для разработки
-    proxy: {
-      '/local/api': {
-        target: 'https://YOUR-DOMAIN.bitrix24.ru',
-        changeOrigin: true,
-        secure: false,
-      }
+server: {
+  proxy: {
+    '/local/ws/api': {
+      target: 'https://bitrix.ustup.ru',
+      changeOrigin: true,
+      secure: false,
+      cookieDomainRewrite: 'localhost',  // ← добавить это
     }
   }
+}
 })
+
+

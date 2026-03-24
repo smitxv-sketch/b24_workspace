@@ -59,7 +59,7 @@ function SheetContent({ detail }) {
               </span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: '#86868b', marginTop: 3, letterSpacing: '-.01em', lineHeight: 1.5 }}>{detail.subtitle}</div>
+          <div style={{ fontSize: 12, color: '#86868b', marginTop: 3, letterSpacing: '-.01em', lineHeight: 1.5 }}>{detail.subtitle}</div>
         </div>
         <button onClick={closeSheet} style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,.07)', border: 'none', cursor: 'pointer', fontSize: 13, color: '#6e6e73', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>✕</button>
       </div>
@@ -68,7 +68,7 @@ function SheetContent({ detail }) {
       <div style={{ display: 'flex', gap: 6, padding: '12px 20px 0', flexWrap: 'wrap' }}>
         {(detail.chips || []).map((chip, i) => (
           <a key={i} href={chip.url} target="_blank" rel="noreferrer" style={{
-            fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 12,
+            fontSize: 12, fontWeight: 500, padding: '5px 12px', borderRadius: 12,
             border: '.5px solid rgba(0,0,0,.1)', textDecoration: 'none', letterSpacing: '-.01em',
             background: chip.style === 'primary' ? '#0071e3' : '#fff',
             color: chip.style === 'primary' ? '#fff' : '#3a3a3c',
@@ -124,7 +124,7 @@ function SheetContent({ detail }) {
 function Section({ title, children }) {
   return (
     <div style={{ padding: '16px 20px 0' }}>
-      {title && <div style={{ fontSize: 10, fontWeight: 700, color: '#aeaeb2', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 10 }}>{title}</div>}
+      {title && <div style={{ fontSize: 11, fontWeight: 700, color: '#aeaeb2', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 10 }}>{title}</div>}
       {children}
     </div>
   )
@@ -134,9 +134,25 @@ function AlertBanner({ alert }) {
   const colors = ALERT[alert.type] || ALERT.blue
   return (
     <div style={{ margin: '14px 20px 0', borderRadius: 14, padding: '12px 14px', background: colors.bg, border: `.5px solid ${colors.border}` }}>
-      <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: colors.label, marginBottom: 3 }}>{alert.label}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#1d1d1f', letterSpacing: '-.025em', marginBottom: 3 }}>{alert.title}</div>
-      <div style={{ fontSize: 11, color: '#6e6e73', lineHeight: 1.5, letterSpacing: '-.01em' }}>{alert.description}</div>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: colors.label, marginBottom: 3 }}>{alert.label}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: '#1d1d1f', letterSpacing: '-.025em', marginBottom: 3 }}>{alert.title}</div>
+      <div style={{ fontSize: 12, color: '#6e6e73', lineHeight: 1.5, letterSpacing: '-.01em', marginBottom: alert.activity_url ? 10 : 0 }}>{alert.description}</div>
+      {alert.activity_url && (
+        <a
+          href={alert.activity_url}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 13, fontWeight: 500, color: colors.label,
+            background: 'rgba(255,255,255,.6)', padding: '5px 12px',
+            borderRadius: 8, textDecoration: 'none', letterSpacing: '-.01em',
+            border: `.5px solid ${colors.border}`,
+          }}
+        >
+          ↗ Перейти к заданию
+        </a>
+      )}
     </div>
   )
 }
@@ -148,8 +164,8 @@ function ParticipantChip({ p }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 10, background: '#fff', border: '.5px solid rgba(0,0,0,.07)' }}>
       <div style={{ width: 22, height: 22, borderRadius: '50%', background: c.bg, color: c.text, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700 }}>{p.initials}</div>
       <div>
-        <div style={{ fontSize: 10, fontWeight: 500, color: '#1d1d1f', letterSpacing: '-.01em' }}>{p.name}</div>
-        <div style={{ fontSize: 9, color: '#86868b' }}>{p.role_label}</div>
+        <div style={{ fontSize: 11, fontWeight: 500, color: '#1d1d1f', letterSpacing: '-.01em' }}>{p.name}</div>
+        <div style={{ fontSize: 10, color: '#86868b' }}>{p.role_label}</div>
       </div>
       <div style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
     </div>
@@ -171,14 +187,14 @@ function Timeline({ steps }) {
             </div>
             <div style={{ flex: 1, paddingBottom: isLast ? 0 : 13 }}>
               <div style={{
-                fontSize: 12, fontWeight: step.state === 'current' || step.state === 'late' ? 600 : 500,
+                fontSize: 13, fontWeight: step.state === 'current' || step.state === 'late' ? 600 : 500,
                 color: step.state === 'current' ? '#0071e3' : step.state === 'late' ? '#ff3b30' : step.state === 'pending' ? '#aeaeb2' : '#1d1d1f',
                 letterSpacing: '-.02em',
               }}>
                 {step.label}{(step.state === 'current' || step.state === 'late') && ' ← сейчас'}
               </div>
               {step.timing && (
-                <div style={{ fontSize: 10, color: '#86868b', marginTop: 1, letterSpacing: '-.01em' }}>
+                <div style={{ fontSize: 11, color: '#86868b', marginTop: 1, letterSpacing: '-.01em' }}>
                   {step.timing}
                   {step.is_overdue && <span style={{ display: 'inline-block', fontSize: 9, color: '#ff3b30', background: 'rgba(255,59,48,.1)', padding: '1px 5px', borderRadius: 5, marginLeft: 4 }}>{step.overdue_label}</span>}
                 </div>
@@ -187,7 +203,7 @@ function Timeline({ steps }) {
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
                   {step.voters.map((v, vi) => (
                     <span key={vi} style={{
-                      fontSize: 10, padding: '2px 7px', borderRadius: 8, letterSpacing: '-.01em',
+                      fontSize: 11, padding: '2px 7px', borderRadius: 8, letterSpacing: '-.01em',
                       background: v.verdict === 'approve' ? 'rgba(52,199,89,.1)' : 'rgba(255,149,0,.1)',
                       color: v.verdict === 'approve' ? '#34c759' : '#ff9500',
                     }}>{v.name} — {v.label}</span>
@@ -219,10 +235,10 @@ function TaskList({ tasks }) {
               {icon}
             </div>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: task.state === 'open' ? '#aeaeb2' : '#1d1d1f', letterSpacing: '-.02em' }}>{task.title}</div>
-              {task.meta && <div style={{ fontSize: 10, color: '#86868b', marginTop: 2, letterSpacing: '-.01em' }}>{task.meta}</div>}
+              <div style={{ fontSize: 13, fontWeight: 500, color: task.state === 'open' ? '#aeaeb2' : '#1d1d1f', letterSpacing: '-.02em' }}>{task.title}</div>
+              {task.meta && <div style={{ fontSize: 11, color: '#86868b', marginTop: 2, letterSpacing: '-.01em' }}>{task.meta}</div>}
               {task.tag && (
-                <span style={{ display: 'inline-block', fontSize: 9, padding: '2px 6px', borderRadius: 6, marginTop: 3, background: 'rgba(255,149,0,.1)', color: '#ff9500' }}>{task.tag}</span>
+                <span style={{ display: 'inline-block', fontSize: 10, padding: '2px 6px', borderRadius: 6, marginTop: 3, background: 'rgba(255,149,0,.1)', color: '#ff9500' }}>{task.tag}</span>
               )}
             </div>
           </div>
@@ -240,22 +256,22 @@ function DisciplineBlock({ rows }) {
         onClick={() => setOpen(!open)}
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0 6px', cursor: 'pointer', userSelect: 'none' }}
       >
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#aeaeb2', textTransform: 'uppercase', letterSpacing: '.07em' }}>Дисциплина по заявке</span>
-        <span style={{ fontSize: 10, color: '#aeaeb2' }}>{open ? '▲' : '▼'}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#aeaeb2', textTransform: 'uppercase', letterSpacing: '.07em' }}>Дисциплина по заявке</span>
+        <span style={{ fontSize: 11, color: '#aeaeb2' }}>{open ? '▲' : '▼'}</span>
       </div>
       {open && (
         <div style={{ background: '#fff', borderRadius: 12, border: '.5px solid rgba(0,0,0,.07)', overflow: 'hidden', marginBottom: 6 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 46px 46px 52px', fontSize: 9, padding: '6px 10px', borderBottom: '.5px solid rgba(0,0,0,.05)', background: 'rgba(0,0,0,.02)', color: '#86868b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 46px 46px 52px', fontSize: 10, padding: '6px 10px', borderBottom: '.5px solid rgba(0,0,0,.05)', background: 'rgba(0,0,0,.02)', color: '#86868b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>
             <span>Шаг</span><span style={{ textAlign: 'right' }}>План</span><span style={{ textAlign: 'right' }}>Факт</span><span style={{ textAlign: 'right' }}>Δ</span>
           </div>
           {rows.map((row, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 46px 46px 52px', fontSize: 10, padding: '6px 10px', borderBottom: i < rows.length - 1 ? '.5px solid rgba(0,0,0,.05)' : 'none', alignItems: 'center', letterSpacing: '-.01em' }}>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 46px 46px 52px', fontSize: 11, padding: '6px 10px', borderBottom: i < rows.length - 1 ? '.5px solid rgba(0,0,0,.05)' : 'none', alignItems: 'center', letterSpacing: '-.01em' }}>
               <span style={{ color: '#1d1d1f' }}>{row.step_label}</span>
               <span style={{ textAlign: 'right', color: '#86868b' }}>{row.plan_hours} ч</span>
               <span style={{ textAlign: 'right', fontWeight: row.state === 'overdue' ? 600 : 400, color: row.state === 'ok' ? '#34c759' : row.state === 'overdue' ? '#ff3b30' : '#ff9500' }}>
                 {formatHours(row.fact_hours, row.state === 'running')}
               </span>
-              <span style={{ textAlign: 'right', fontSize: 9, color: row.delta === null ? '#ff9500' : row.delta > 0 ? '#ff3b30' : '#34c759' }}>
+              <span style={{ textAlign: 'right', fontSize: 10, color: row.delta === null ? '#ff9500' : row.delta > 0 ? '#ff3b30' : '#34c759' }}>
                 {row.delta === null ? 'идёт' : (row.delta > 0 ? '+' : '') + row.delta}
               </span>
             </div>
@@ -284,8 +300,8 @@ function EventFeed({ events }) {
               {ev.initials}
             </div>
             <div>
-              <div style={{ fontSize: 11, color: '#1d1d1f', lineHeight: 1.5, letterSpacing: '-.01em' }}>{ev.text}</div>
-              {ev.date_ts > 0 && <div style={{ fontSize: 9, color: '#aeaeb2', marginTop: 1 }}>{formatRelativeTime(new Date(ev.date_ts * 1000).toISOString())}</div>}
+              <div style={{ fontSize: 12, color: '#1d1d1f', lineHeight: 1.5, letterSpacing: '-.01em' }}>{ev.text}</div>
+              {ev.date_ts > 0 && <div style={{ fontSize: 10, color: '#aeaeb2', marginTop: 1 }}>{formatRelativeTime(new Date(ev.date_ts * 1000).toISOString())}</div>}
             </div>
           </div>
         )

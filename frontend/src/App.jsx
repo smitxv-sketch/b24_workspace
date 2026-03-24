@@ -4,6 +4,7 @@ import { TopNav } from './components/layout/TopNav.jsx'
 import { DealsScreen } from './components/deals/DealsScreen.jsx'
 import { Sheet } from './components/sheet/Sheet.jsx'
 import { AnalyticsScreen } from './components/analytics/AnalyticsScreen.jsx'
+import { ReportsScreen } from './components/reports/ReportsScreen.jsx'
 
 export default function App() {
   const { isBootstrapped, bootstrapError, activeScreen, bootstrap, refreshItems } = useWorkspaceStore()
@@ -39,6 +40,7 @@ export default function App() {
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activeScreen === 'deals'     && <DealsScreen />}
         {activeScreen === 'analytics' && <AnalyticsScreen />}
+        {activeScreen === 'reports'   && <ReportsScreen />}
       </div>
       <Sheet />
     </div>

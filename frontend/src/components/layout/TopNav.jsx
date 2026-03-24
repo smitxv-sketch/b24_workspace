@@ -52,12 +52,22 @@ export function TopNav() {
     <nav style={s.nav}>
       <div style={s.left}>
         {nav.map(item => {
-          const isActive = activeScreen === 'deals' && item.key === activeProcessKey
+          const isReports = item.key === 'reports'
+          const isActive = isReports
+            ? activeScreen === 'reports'
+            : (activeScreen === 'deals' && item.key === activeProcessKey)
           return (
             <button
               key={item.key}
               style={s.tab(isActive, item.disabled)}
-              onClick={() => !item.disabled && setActiveProcess(item.key)}
+              onClick={() => {
+                if (item.disabled) return
+                if (isReports) {
+                  setActiveScreen('reports')
+                  return
+                }
+                setActiveProcess(item.key)
+              }}
             >
               <span style={{ color: isActive ? '#0071e3' : '#aeaeb2', display:'flex' }}>
                 {ICONS[item.icon] || ICONS.grid}

@@ -58,7 +58,10 @@ try {
                  ?? ['sections' => ['alert','timeline'], 'folders' => [], 'filters' => []];
 
     // 3. Получаем документы
-    $deals = fetchActiveDeals($entityTypeId, $categoryId);
+    $fields = collectFieldsFromConfig($config, $wsCfg);
+    $deals  = fetchActiveDeals($entityTypeId, $categoryId, $fields);
+    $stageColorMap = loadStageColorMap($entityTypeId, $categoryId);
+    $rightsFieldCode = getFieldCode($entityTypeId, 'rights');
 
     // 4. Строим ActionItems
     $items    = [];
@@ -85,30 +88,64 @@ try {
         $version     = (int)($state['version'] ?? $state['nav']['version'] ?? 1);
         $isRework    = (bool)($state['isRework'] ?? false);
 
-        // Секция
+        // Секция + статус.
         $stageSemanticId = $deal['STAGE_SEMANTIC_ID'] ?? '';
-        if (in_array($stageSemanticId, ['S', 'F'], true)) {
+        $stageId = (string)($deal['STAGE_ID'] ?? '');
+
+        // Завершённые сделки: всегда closed, без действия/просрочки.
+        if (!$currentStep || in_array($currentStep, ['_done', '_complete'], true)) {
             $section = 'closed';
-        } elseif ($overdue['is_overdue'] || $needsAction) {
-            $section = 'attention';
+            $needsAction = false;
+            $overdue = ['is_overdue' => false, 'overdue_hours' => 0, 'elapsed_hours' => 0];
+            $statusLabel = 'Завершён';
+            $statusColor = 'green';
+            $accentColor = 'green';
         } else {
-            $section = 'active';
+            if (in_array($stageSemanticId, ['S', 'F'], true)) {
+                $section = 'closed';
+            } elseif ($overdue['is_overdue'] || $needsAction) {
+                $section = 'attention';
+            } else {
+                $section = 'active';
+            }
+
+            // Цвет акцента для незавершённых.
+            if ($overdue['is_overdue']) { $accentColor = 'red'; $statusColor = 'red'; $statusLabel = 'Просрочено'; }
+            elseif ($needsAction)       { $accentColor = 'blue'; $statusColor = 'blue'; $statusLabel = 'Нужно решение'; }
+            elseif ($isWaiting)         { $accentColor = 'amber'; $statusColor = 'amber'; $statusLabel = 'Ожидание'; }
+            elseif ($section === 'closed' && $stageSemanticId === 'S') { $accentColor = 'green'; $statusColor = 'green'; $statusLabel = 'WON'; }
+            elseif ($section === 'closed') { $accentColor = 'red'; $statusColor = 'red'; $statusLabel = 'Отклонено'; }
+            else   { $accentColor = 'blue'; $statusColor = 'blue'; $statusLabel = 'В работе'; }
         }
         $sections[$section]++;
 
-        // Цвет акцента
-        if ($overdue['is_overdue']) { $accentColor = 'red'; $statusColor = 'red'; $statusLabel = 'Просрочено'; }
-        elseif ($needsAction)       { $accentColor = 'blue'; $statusColor = 'blue'; $statusLabel = 'Нужно решение'; }
-        elseif ($isWaiting)         { $accentColor = 'amber'; $statusColor = 'amber'; $statusLabel = 'Ожидание'; }
-        elseif ($section === 'closed' && $stageSemanticId === 'S') { $accentColor = 'green'; $statusColor = 'green'; $statusLabel = 'WON'; }
-        elseif ($section === 'closed') { $accentColor = 'red'; $statusColor = 'red'; $statusLabel = 'Отклонено'; }
-        else   { $accentColor = 'blue'; $statusColor = 'blue'; $statusLabel = 'В работе'; }
+        // Цвет стадии CRM (hex) для визуального акцента карточки.
+        $stageColor = resolveStageColorHex($stageColorMap, $stageId);
 
         $stepLabel = $currentStep ? ($stepsConfig[$currentStep]['label'] ?? $currentStep) : '';
         $deadlineH = $currentStep ? ($stepsConfig[$currentStep]['deadline_hours'] ?? null) : null;
         $hint = $overdue['is_overdue']
             ? $overdue['elapsed_hours'] . ' ч из ' . $deadlineH . ' · просрочено'
             : ($deadlineH ? $overdue['elapsed_hours'] . ' ч из ' . $deadlineH : '');
+
+        $createdAt = (string)($deal['DATE_CREATE'] ?? '');
+        $createdAtLabel = '';
+        $daysInWork = null;
+        if ($createdAt !== '') {
+            $createdTs = strtotime($createdAt);
+            if ($createdTs) {
+                $createdAtLabel = date('d.m.Y', $createdTs);
+                $daysInWork = max(0, (int)floor((time() - $createdTs) / 86400));
+            }
+        }
+
+        // Ссылка на основную папку сделки (на уровень выше рабочих подпапок).
+        $folderUrl = null;
+        $rightsJson = BpStorage::readJson($entityTypeId, $docId, $rightsFieldCode);
+        $rootFolderId = resolveDealRootFolderIdFromRights($rightsJson, $wsRoleCfg);
+        if ($rootFolderId > 0) {
+            $folderUrl = getFolderUrl($rootFolderId);
+        }
 
         // Участники (превью аватаров)
         $participantsPreview = buildParticipantsPreview($config, $docFields, $state, $currentStep);
@@ -119,6 +156,10 @@ try {
             'entity_id'           => $docId,
             'title'               => $deal['TITLE'] ?? '#' . $docId,
             'entity_url'          => '/crm/deal/details/' . $docId . '/',
+            'folder_url'          => $folderUrl,
+            'created_at'          => $createdAt,
+            'created_at_label'    => $createdAtLabel,
+            'days_in_work'        => $daysInWork,
             'process_key'         => $processKey,
             'current_step'        => $currentStep,
             'current_step_label'  => $stepLabel,
@@ -133,6 +174,7 @@ try {
             'status_label'        => $statusLabel,
             'status_color'        => $statusColor,
             'accent_color'        => $accentColor,
+            'stage_color'         => $stageColor,
             'deadline_hours'      => $deadlineH,
             'hint'                => $hint,
             'participants_preview'=> $participantsPreview,
@@ -172,20 +214,23 @@ try {
     ]);
 
 } catch (\Throwable $e) {
-    BpLog::error('ws_process_items', 'Fatal: ' . $e->getMessage(), ['line' => $e->getLine()]);
-    wsJsonErr('internal_error', 500);
+    wsHandleThrowable('ws_process_items', $e);
 }
 
 // ── Вспомогательные функции ───────────────────────────────────────────────
 
-function fetchActiveDeals(int $entityTypeId, int $categoryId): array {
+function fetchActiveDeals(int $entityTypeId, int $categoryId, array $fields = []): array {
     \Bitrix\Main\Loader::includeModule('crm');
+    if (empty($fields)) {
+        // Безопасный fallback, если список не был передан.
+        $fields = ['ID', 'TITLE', 'ASSIGNED_BY_ID', 'STAGE_ID', 'STAGE_SEMANTIC_ID', 'DATE_CREATE'];
+    }
     if ($entityTypeId === 2) {
         $res = \CCrmDeal::GetListEx(
             ['DATE_CREATE' => 'DESC'],
             ['CATEGORY_ID' => $categoryId, 'CHECK_PERMISSIONS' => 'N'],
             false, ['nPageSize' => 200, 'iNumPage' => 1],
-            ['ID','TITLE','ASSIGNED_BY_ID','STAGE_ID','STAGE_SEMANTIC_ID','DATE_CREATE','UF_GIP','UF_CONTRACT_AMOUNT']
+            $fields
         );
         $rows = [];
         while ($r = $res->Fetch()) $rows[] = $r;
@@ -197,9 +242,91 @@ function fetchActiveDeals(int $entityTypeId, int $categoryId): array {
     $collection = $factory->getItemCollection(['filter'=>['CATEGORY_ID'=>$categoryId,'!STAGE_SEMANTIC_ID'=>'F'],'limit'=>200]);
     $rows = [];
     foreach ($collection as $item) {
-        $rows[] = ['ID'=>$item->getId(),'TITLE'=>$item->getTitle(),'ASSIGNED_BY_ID'=>$item->getAssignedById(),'STAGE_SEMANTIC_ID'=>$item->getStageSemanticId()];
+        $rows[] = [
+            'ID'                => $item->getId(),
+            'TITLE'             => $item->getTitle(),
+            'ASSIGNED_BY_ID'    => $item->getAssignedById(),
+            'STAGE_ID'          => method_exists($item, 'getStageId') ? $item->getStageId() : '',
+            'STAGE_SEMANTIC_ID' => $item->getStageSemanticId(),
+        ];
     }
     return $rows;
+}
+
+function loadStageColorMap(int $entityTypeId, int $categoryId): array {
+    $map = [];
+    $entityIds = [];
+
+    if ($entityTypeId === 2) {
+        // Для сделок обычно используется DEAL_STAGE_<category>, но иногда DEAL_STAGE.
+        $entityIds[] = 'DEAL_STAGE_' . $categoryId;
+        $entityIds[] = 'DEAL_STAGE';
+    } else {
+        $entityIds[] = 'DYNAMIC_' . $entityTypeId . '_STAGE_' . $categoryId;
+    }
+
+    foreach ($entityIds as $entityId) {
+        $rs = \CCrmStatus::GetList(['SORT' => 'ASC'], ['ENTITY_ID' => $entityId]);
+        while ($st = $rs->Fetch()) {
+            $statusId = (string)($st['STATUS_ID'] ?? '');
+            if ($statusId === '') continue;
+
+            $color = '';
+            if (!empty($st['COLOR']) && $st['COLOR'] !== '#') {
+                $color = (string)$st['COLOR'];
+            } elseif (!empty($st['EXTRA']['COLOR'])) {
+                $color = (string)$st['EXTRA']['COLOR'];
+            }
+
+            if ($color !== '' && !isset($map[$statusId])) {
+                $map[$statusId] = $color;
+            }
+        }
+    }
+
+    return $map;
+}
+
+function resolveStageColorHex(array $stageColorMap, string $stageId): ?string {
+    if ($stageId === '') return null;
+    $color = $stageColorMap[$stageId] ?? null;
+    if (!$color) return null;
+
+    $c = trim((string)$color);
+    if ($c === '') return null;
+
+    // Нормализуем к #RRGGBB, если пришёл цвет без #.
+    if ($c[0] !== '#') $c = '#' . $c;
+    return preg_match('/^#[0-9A-Fa-f]{6}$/', $c) ? strtoupper($c) : null;
+}
+
+function resolveDealRootFolderIdFromRights(array $rightsJson, array $wsRoleCfg): int {
+    if (!\Bitrix\Main\Loader::includeModule('disk')) return 0;
+
+    foreach (($wsRoleCfg['folders'] ?? []) as $folderKey) {
+        $diskId = (int)($rightsJson['folders'][$folderKey]['diskId'] ?? 0);
+        if ($diskId <= 0) continue;
+
+        $folder = \Bitrix\Disk\Folder::getById($diskId);
+        if (!$folder) continue;
+
+        $parentId = (int)$folder->getParentId();
+        return $parentId > 0 ? $parentId : $diskId;
+    }
+
+    return 0;
+}
+
+function getFolderUrl(int $diskId): ?string {
+    if (!\Bitrix\Main\Loader::includeModule('disk')) return null;
+    $folder = \Bitrix\Disk\Folder::getById($diskId);
+    if (!$folder) return null;
+    $urlManager = \Bitrix\Disk\Driver::getInstance()->getUrlManager();
+    $path       = $urlManager->getPathInListing($folder);
+    $parts      = array_filter(explode('/', trim($path, '/')));
+    $encoded    = array_map('rawurlencode', $parts);
+    $encoded[]  = rawurlencode($folder->getName());
+    return 'https://' . $_SERVER['HTTP_HOST'] . '/' . implode('/', $encoded) . '/';
 }
 
 function buildParticipantsPreview(array $config, array $docFields, array $state, ?string $currentStep): array {

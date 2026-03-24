@@ -9,6 +9,16 @@ const COLORS = {
   red:       '#ff3b30', red_dim:   '#ff3b3080',
 }
 
+const SHORT_LABELS = {
+  assign_team: 'Назнач.',
+  tech_decision: 'Реш. ТД',
+  assign_gip: 'ГИП',
+  tech_docs: 'Тех. док.',
+  finances: 'Финансы',
+  assembly: 'Сборка',
+  approval_tkp: 'Согласов.',
+}
+
 export function AnalyticsScreen() {
   const { analyticsData, analyticsPeriod, isLoadingAnalytics, setAnalyticsPeriod, activeProcessKey } = useWorkspaceStore()
 
@@ -20,13 +30,18 @@ export function AnalyticsScreen() {
     secLbl: { fontSize: 10, fontWeight: 700, color: '#aeaeb2', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 14 },
     sw:     { display: 'inline-flex', background: 'rgba(0,0,0,.07)', borderRadius: 10, padding: 2, marginBottom: 18 },
     swBtn:  (on) => ({ fontSize: 11, fontWeight: 500, padding: '5px 14px', borderRadius: 8, cursor: 'pointer', color: on ? '#1d1d1f' : '#6e6e73', border: 'none', fontFamily: 'inherit', background: on ? '#fff' : 'transparent', boxShadow: on ? '0 1px 4px rgba(0,0,0,.1)' : 'none', letterSpacing: '-.01em' }),
+    metricGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 8, marginBottom: 12 },
+    metricCard: { background: '#fff', borderRadius: 12, padding: '12px 12px', border: '.5px solid rgba(0,0,0,.06)' },
+    metricLabel: { fontSize: 10, color: '#86868b', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4, fontWeight: 700 },
+    metricValue: { fontSize: 18, color: '#1d1d1f', fontWeight: 700, letterSpacing: '-.03em', lineHeight: 1.1 },
+    metricSub: { fontSize: 10, color: '#86868b', marginTop: 3, letterSpacing: '-.01em' },
   }
 
   if (isLoadingAnalytics || !analyticsData) {
     return (
       <div style={s.wrap}>
         <div style={s.title}>Аналитика</div>
-        <div style={{ ...s.card, marginTop: 16 }} className="skeleton" style={{ height: 200 }} />
+        <div style={{ ...s.card, marginTop: 16, height: 200 }} className="skeleton" />
       </div>
     )
   }
@@ -48,11 +63,13 @@ export function AnalyticsScreen() {
         </button>
       </div>
 
+      <MetricsRow d={d} styles={s} />
+
       {/* Воронка */}
       <div style={s.card}>
         <div style={s.secLbl}>Воронка по статусам</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {(d.funnel || []).map(row => {
+          {(d.funnel || []).filter(row => row.count > 0).map(row => {
             const color  = COLORS[row.color] || COLORS.blue
             const width  = Math.max(Math.round(row.count / maxCount * 100), row.count > 0 ? 4 : 0)
             return (
@@ -77,6 +94,9 @@ export function AnalyticsScreen() {
               </div>
             )
           })}
+          {(d.funnel || []).filter(row => row.count > 0).length === 0 && (
+            <div style={{ fontSize: 12, color: '#86868b' }}>Нет данных за период</div>
+          )}
         </div>
       </div>
 
@@ -84,6 +104,9 @@ export function AnalyticsScreen() {
       {d.step_averages?.length > 0 && (
         <div style={s.card}>
           <div style={s.secLbl}>Среднее время по шагам (план vs факт)</div>
+          <div style={{ fontSize: 10, color: '#86868b', marginBottom: 10, letterSpacing: '-.01em' }}>
+            ▬ серый = план · ▬ цветной = факт
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {d.step_averages.map(row => {
               if (row.avg_hours === null) return null
@@ -99,7 +122,9 @@ export function AnalyticsScreen() {
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <div style={{ height: 7, borderRadius: 3, background: '#e5e5ea', width: planWidth + '%' }} />
+                    <div style={{ fontSize: 9, color: '#86868b', letterSpacing: '-.01em' }}>план: {row.plan_hours} ч</div>
                     <div style={{ height: 7, borderRadius: 3, background: factColor, width: Math.min(factWidth, 120) + '%', transition: 'width .5s ease' }} />
+                    <div style={{ fontSize: 9, color: factColor, letterSpacing: '-.01em' }}>факт: {row.avg_hours} ч{isOver ? ' ▲' : ''}</div>
                   </div>
                   <div style={{ fontSize: 9, width: 46, color: factColor, flexShrink: 0, letterSpacing: '-.01em' }}>
                     {row.avg_hours} ч{isOver ? ' ▲' : ''}
@@ -121,7 +146,7 @@ export function AnalyticsScreen() {
                 <th style={{ padding: '6px 8px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: '#86868b', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '.5px solid rgba(0,0,0,.07)' }}>Заявка</th>
                 {d.step_averages?.filter(s => s.avg_hours !== null).slice(0, 4).map(s => (
                   <th key={s.step_key} style={{ padding: '6px 8px', textAlign: 'right', fontSize: 9, fontWeight: 700, color: '#86868b', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '.5px solid rgba(0,0,0,.07)' }}>
-                    {s.label.split(' ')[0]}
+                    {SHORT_LABELS[s.step_key] || s.label}
                   </th>
                 ))}
               </tr>
@@ -133,6 +158,7 @@ export function AnalyticsScreen() {
                   {d.step_averages?.filter(s => s.avg_hours !== null).slice(0, 4).map(sa => {
                     const cell = deal.steps?.[sa.step_key]
                     const color = !cell || cell.state === 'pending' ? '#c7c7cc'
+                                : cell.hours === 0 ? '#c7c7cc'
                                 : cell.state === 'running' ? '#ff9500'
                                 : cell.state === 'overdue' ? '#ff3b30'
                                 : '#34c759'
@@ -148,6 +174,35 @@ export function AnalyticsScreen() {
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+function MetricsRow({ d, styles }) {
+  const funnel = d.funnel || []
+  const total = funnel.reduce((sum, row) => sum + (row.count || 0), 0)
+  const active = (funnel.find(r => r.key === 'active')?.count) || 0
+  const overdueSteps = (d.step_averages || []).filter(r => r.state === 'overdue').length
+  const completedSteps = (d.step_averages || []).filter(r => r.avg_hours !== null)
+  const inTimeSteps = completedSteps.filter(r => r.avg_hours <= r.plan_hours).length
+  const inTimePct = completedSteps.length > 0 ? Math.round((inTimeSteps / completedSteps.length) * 100) : 0
+
+  const cards = [
+    { label: 'Всего', value: total, sub: 'заявок' },
+    { label: 'Активных', value: active, sub: 'сейчас' },
+    { label: 'Просрочено', value: overdueSteps, sub: 'шага' },
+    { label: 'В срок', value: `${inTimePct}%`, sub: 'шагов' },
+  ]
+
+  return (
+    <div style={styles.metricGrid}>
+      {cards.map(card => (
+        <div key={card.label} style={styles.metricCard}>
+          <div style={styles.metricLabel}>{card.label}</div>
+          <div style={styles.metricValue}>{card.value}</div>
+          <div style={styles.metricSub}>{card.sub}</div>
+        </div>
+      ))}
     </div>
   )
 }

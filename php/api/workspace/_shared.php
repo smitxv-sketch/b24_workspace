@@ -63,6 +63,29 @@ function wsJsonErr(string $msg, int $code = 400): void {
     exit;
 }
 
+/**
+ * Единая обработка исключений для endpoint'ов.
+ * Пишет в лог и добавляет подробности в WsDiag (если включен).
+ */
+function wsHandleThrowable(string $channel, \Throwable $e): void {
+    // Лог в системный лог bproc.
+    BpLog::error($channel, 'Fatal: ' . $e->getMessage(), ['line' => $e->getLine(), 'file' => $e->getFile()]);
+
+    // В ответе debug показываем подробности только в режиме диагностики.
+    WsDiag::add('exception', [
+        'channel' => $channel,
+        'type'    => get_class($e),
+        'message' => $e->getMessage(),
+        'file'    => $e->getFile(),
+        'line'    => $e->getLine(),
+    ], 1);
+    WsDiag::add('exception_trace', [
+        'trace' => explode("\n", $e->getTraceAsString()),
+    ], 3);
+
+    wsJsonErr('internal_error', 500);
+}
+
 // ── Загрузка конфигов ─────────────────────────────────────────────────────
 
 function wsLoadWorkspaceConfig(string $processKey): ?array {
@@ -115,10 +138,47 @@ function wsLoadRoleProfile(string $roleKey): array {
 }
 
 /**
+ * Собирает список UF-полей для SELECT из конфига процесса.
+ * Берёт все поля типа "field" из секции roles + amount_field из ws-конфига.
+ */
+function collectFieldsFromConfig(array $config, array $wsCfg): array {
+    $base = ['ID', 'TITLE', 'ASSIGNED_BY_ID', 'STAGE_ID', 'STAGE_SEMANTIC_ID', 'DATE_CREATE'];
+
+    foreach ($config['roles'] ?? [] as $roleDef) {
+        if (($roleDef['type'] ?? '') !== 'field') continue;
+        $field = (string)($roleDef['field'] ?? '');
+        if ($field !== '' && !in_array($field, $base, true)) {
+            $base[] = $field;
+        }
+    }
+
+    $amountField = (string)($wsCfg['amount_field'] ?? '');
+    if ($amountField !== '' && !in_array($amountField, $base, true)) {
+        $base[] = $amountField;
+    }
+
+    WsDiag::add('collect_fields_from_config', ['fields' => $base], 2);
+    return $base;
+}
+
+/**
  * Единая точка проверки process-конфигов для endpoint'ов.
  * При ошибке сам вернет wsJsonErr с детальной диагностикой (если включена).
  */
 function wsRequireProcessConfigs(string $processKey): array {
+    $primaryProcessesDir = wsDocPath(WS_BPROC_CONFIG_ROOT_PRIMARY . '/processes');
+    $fallbackProcessesDir = wsDocPath(WS_BPROC_CONFIG_ROOT_FALLBACK . '/processes');
+    WsDiag::add('config_root_resolution', [
+        'forced_ws_cfg_root' => $_GET['ws_cfg_root'] ?? null,
+        'primary_root' => WS_BPROC_CONFIG_ROOT_PRIMARY,
+        'primary_processes_dir' => $primaryProcessesDir,
+        'primary_exists' => is_dir($primaryProcessesDir),
+        'fallback_root' => WS_BPROC_CONFIG_ROOT_FALLBACK,
+        'fallback_processes_dir' => $fallbackProcessesDir,
+        'fallback_exists' => is_dir($fallbackProcessesDir),
+        'selected_config_root' => wsBprocConfigRoot(),
+    ]);
+
     $wsCfg = wsLoadWorkspaceConfig($processKey);
     $cfg   = wsLoadProcessConfig($processKey);
 
@@ -126,7 +186,8 @@ function wsRequireProcessConfigs(string $processKey): array {
         'process_key' => $processKey,
         'workspace_config_found' => $wsCfg !== null,
         'process_config_found'   => $cfg !== null,
-        'bproc_root'             => wsBprocRoot(),
+        'bproc_runtime_root'     => wsBprocRoot(),
+        'bproc_config_root'      => wsBprocConfigRoot(),
     ]);
 
     if (!$wsCfg || !$cfg) {
@@ -167,6 +228,9 @@ function computeProgress(array $state, array $stepsConfig): int {
 }
 
 function computeNeedsAction(string $currentStep, array $stepsConfig, array $circleConfig, array $rolesConfig, array $docFields, array $state, RoleResolver $resolver): bool {
+    // Служебные значения завершённого процесса: действий не требуется.
+    if (!$currentStep || in_array($currentStep, ['_done', '_complete'], true)) return false;
+
     $stepType = $stepsConfig[$currentStep]['type'] ?? 'human';
     if (in_array($stepType, ['auto','final','wait'], true)) return false;
 

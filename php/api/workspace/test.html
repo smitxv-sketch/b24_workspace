@@ -63,6 +63,16 @@
 
   /* JSON viewer */
   .json-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .json-wrap + .json-wrap { margin-top: 12px; }
+  .dept-picker { margin-bottom: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .dept-picker-head { display:flex; align-items:center; justify-content:space-between; padding:8px 14px; border-bottom:1px solid var(--border); }
+  .dept-picker-title { font-size:11px; color:var(--muted); font-family: var(--font); }
+  .dept-picker-body { padding: 10px 12px; max-height: 240px; overflow: auto; }
+  .dept-row { display:flex; align-items:center; gap:6px; margin: 2px 0; }
+  .dept-toggle { width:16px; height:16px; border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:10px; line-height:10px; }
+  .dept-pick-btn { border:1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor:pointer; }
+  .dept-pick-btn.active { border-color: rgba(108,110,255,.45); color: var(--accent); background: rgba(108,110,255,.1); }
+  .dept-current-label { font-size:10px; color: var(--muted); }
   .json-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--border); }
   .json-label { font-size: 11px; color: var(--muted); font-family: var(--font); }
   .copy-btn { font-size: 10px; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 3px 8px; border-radius: 4px; cursor: pointer; }
@@ -120,6 +130,10 @@
       <span class="ep-method get">GET</span>
       <span class="ep-name">analytics</span>
     </button>
+    <button class="endpoint-btn" onclick="setEndpoint('reports')" id="btn-reports">
+      <span class="ep-method get">GET</span>
+      <span class="ep-name">reports</span>
+    </button>
 
     <div class="sb-group" style="margin-top:16px">Результат последнего вызова</div>
     <div style="padding:8px 14px">
@@ -155,11 +169,106 @@
           <option value="year">year (с начала года)</option>
         </select>
       </div>
+      <div class="param-group" id="p-report" style="display:none">
+        <div class="param-label">report</div>
+        <select class="param-input" id="i-report">
+          <option value="time_tracking">time_tracking</option>
+        </select>
+      </div>
+      <div class="param-group" id="p-dept_id" style="display:none">
+        <div class="param-label">dept_id</div>
+        <select class="param-input" id="i-dept_id" onchange="syncExpandDeptFromSelect()">
+          <option value="">Выберите отдел</option>
+        </select>
+      </div>
+      <div class="param-group" id="p-date_from" style="display:none">
+        <div class="param-label">date_from</div>
+        <input class="param-input" id="i-date_from" value="" placeholder="YYYY-MM-DD">
+      </div>
+      <div class="param-group" id="p-date_to" style="display:none">
+        <div class="param-label">date_to</div>
+        <input class="param-input" id="i-date_to" value="" placeholder="YYYY-MM-DD">
+      </div>
+      <div class="param-group" id="p-expand_dept" style="display:none">
+        <div class="param-label">expand_dept</div>
+        <input class="param-input" id="i-expand_dept" value="" placeholder="ID отдела">
+      </div>
+      <div class="param-group" id="p-group_mode" style="display:none">
+        <div class="param-label">group_mode</div>
+        <select class="param-input" id="i-group_mode">
+          <option value="users_projects">users_projects</option>
+          <option value="users_only">users_only</option>
+          <option value="projects_only">projects_only</option>
+        </select>
+      </div>
+      <div class="param-group" id="p-include_subdepts" style="display:none">
+        <div class="param-label">include_subdepts</div>
+        <select class="param-input" id="i-include_subdepts">
+          <option value="Y">Y</option>
+          <option value="N">N</option>
+        </select>
+      </div>
+      <div class="param-group" id="p-period_preset" style="display:none">
+        <div class="param-label">period_preset</div>
+        <select class="param-input" id="i-period_preset">
+          <option value="month">month</option>
+          <option value="today">today</option>
+          <option value="7d">7d</option>
+          <option value="30d">30d</option>
+          <option value="quarter">quarter</option>
+          <option value="custom">custom</option>
+        </select>
+      </div>
+      <div class="param-group" id="p-sort_by" style="display:none">
+        <div class="param-label">sort_by</div>
+        <select class="param-input" id="i-sort_by">
+          <option value="hours_desc">hours_desc</option>
+          <option value="hours_asc">hours_asc</option>
+          <option value="name_asc">name_asc</option>
+          <option value="name_desc">name_desc</option>
+        </select>
+      </div>
+      <div class="param-group" id="p-format" style="display:none">
+        <div class="param-label">format</div>
+        <select class="param-input" id="i-format">
+          <option value="json">json</option>
+          <option value="csv">csv</option>
+        </select>
+      </div>
+      <div class="param-group" id="p-schema_debug" style="display:none">
+        <div class="param-label">schema_debug</div>
+        <select class="param-input" id="i-schema_debug">
+          <option value="N">N</option>
+          <option value="Y" selected>Y</option>
+        </select>
+      </div>
+      <div class="param-group" id="p-data_debug" style="display:none">
+        <div class="param-label">data_debug</div>
+        <select class="param-input" id="i-data_debug">
+          <option value="N">N</option>
+          <option value="Y">Y</option>
+        </select>
+      </div>
       <div class="param-group">
         <div class="param-label">debug</div>
         <select class="param-input" id="i-debug" style="width:80px">
           <option value="N">N</option>
           <option value="Y">Y</option>
+        </select>
+      </div>
+      <div class="param-group">
+        <div class="param-label">ws_diag</div>
+        <select class="param-input" id="i-ws_diag" style="width:80px">
+          <option value="N">N</option>
+          <option value="Y">Y</option>
+        </select>
+      </div>
+      <div class="param-group">
+        <div class="param-label">diag_lvl</div>
+        <select class="param-input" id="i-ws_diag_level" style="width:90px">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
         </select>
       </div>
       <button class="run-btn" onclick="run()">
@@ -181,12 +290,32 @@
           <span class="meta-time" id="resp-time"></span>
           <span class="meta-url" id="resp-url"></span>
         </div>
+        <div id="dept-picker-wrap" class="dept-picker" style="display:none">
+          <div class="dept-picker-head">
+            <span class="dept-picker-title">Структурные подразделения (клик для подстановки dept_id)</span>
+            <span class="dept-current-label" id="dept-current-label"></span>
+          </div>
+          <div class="dept-picker-body" id="dept-picker-body"></div>
+        </div>
         <div class="json-wrap">
           <div class="json-toolbar">
             <span class="json-label" id="json-label">Response</span>
             <button class="copy-btn" onclick="copyJson()">Копировать</button>
           </div>
           <pre id="json-out"></pre>
+        </div>
+        <div class="json-wrap" id="diag-wrap" style="display:none">
+          <div class="json-toolbar">
+            <span class="json-label" id="diag-label">Diagnostics</span>
+            <button class="copy-btn" onclick="copyDiag()">Копировать</button>
+          </div>
+          <pre id="diag-out"></pre>
+        </div>
+        <div class="json-wrap" id="slices-wrap" style="display:none">
+          <div class="json-toolbar">
+            <span class="json-label" id="slices-label">Report Slices</span>
+          </div>
+          <pre id="slices-out"></pre>
         </div>
       </div>
     </div>
@@ -199,6 +328,8 @@
 const BASE = new URL('./', window.location.href).pathname;
 let currentEndpoint = 'bootstrap';
 let lastRawJson = '';
+let lastDiagJson = '';
+const deptExpanded = new Set();
 
 const ENDPOINTS = {
   bootstrap: {
@@ -217,6 +348,10 @@ const ENDPOINTS = {
     url: 'analytics.php',
     params: ['process_key', 'period'],
   },
+  reports: {
+    url: 'reports.php',
+    params: ['report', 'dept_id', 'date_from', 'date_to', 'expand_dept', 'group_mode', 'include_subdepts', 'period_preset', 'sort_by', 'format', 'schema_debug', 'data_debug'],
+  },
 };
 
 function setEndpoint(key) {
@@ -225,25 +360,43 @@ function setEndpoint(key) {
   document.getElementById('btn-' + key)?.classList.add('active');
 
   // Показываем нужные параметры
-  ['process_key','entity_id','filter','period'].forEach(p => {
+  ['process_key','entity_id','filter','period','report','dept_id','date_from','date_to','expand_dept','group_mode','include_subdepts','period_preset','sort_by','format','schema_debug','data_debug'].forEach(p => {
     document.getElementById('p-' + p).style.display = 'none';
   });
   ENDPOINTS[key].params.forEach(p => {
     document.getElementById('p-' + p).style.display = '';
   });
+  if (key !== 'reports') {
+    document.getElementById('dept-picker-wrap').style.display = 'none';
+  } else {
+    fetchReportsDeptTree();
+  }
 }
 
 async function run() {
   const ep    = ENDPOINTS[currentEndpoint];
   const debug = document.getElementById('i-debug').value;
+  const wsDiag = document.getElementById('i-ws_diag').value;
+  const wsDiagLevel = document.getElementById('i-ws_diag_level').value;
 
   const params = new URLSearchParams({ debug });
+  // Единый переключатель server-side диагностики.
+  if (wsDiag === 'Y') {
+    params.set('ws_diag', 'Y');
+    params.set('ws_diag_level', wsDiagLevel);
+  }
   ep.params.forEach(p => {
     const val = document.getElementById('i-' + p)?.value;
     if (val) params.set(p, val);
   });
 
   const url = BASE + ep.url + '?' + params.toString();
+
+  if (currentEndpoint === 'reports' && document.getElementById('i-format')?.value === 'csv') {
+    window.open(url, '_blank', 'noopener');
+    document.getElementById('last-result-summary').textContent = 'reports: csv download started';
+    return;
+  }
 
   // UI: loading
   document.getElementById('run-label').style.display = 'none';
@@ -268,6 +421,7 @@ async function run() {
     }
 
     lastRawJson = JSON.stringify(data, null, 2);
+    lastDiagJson = '';
 
     // Status
     const isOk = data.status === 'ok';
@@ -279,6 +433,9 @@ async function run() {
     document.getElementById('resp-url').textContent = url;
     document.getElementById('json-label').textContent = 'Response · ' + lastRawJson.length + ' chars';
     document.getElementById('json-out').innerHTML = syntaxHighlight(lastRawJson);
+    renderDiag(data);
+    renderSlices(data);
+    renderDeptPicker(data);
     document.getElementById('response-block').style.display = 'block';
 
     // Sidebar summary
@@ -296,6 +453,8 @@ async function run() {
 
   } catch (e) {
     document.getElementById('json-out').textContent = 'Ошибка: ' + e.message;
+    document.getElementById('diag-wrap').style.display = 'none';
+    lastDiagJson = '';
     document.getElementById('response-block').style.display = 'block';
     document.getElementById('resp-status').textContent = 'Network Error';
     document.getElementById('resp-status').className = 'status-badge err';
@@ -325,6 +484,196 @@ function copyJson() {
     btn.textContent = 'Скопировано!';
     setTimeout(() => btn.textContent = 'Копировать', 1500);
   });
+}
+
+function copyDiag() {
+  navigator.clipboard.writeText(lastDiagJson).then(() => {
+    const btn = document.querySelector('#diag-wrap .copy-btn');
+    btn.textContent = 'Скопировано!';
+    setTimeout(() => btn.textContent = 'Копировать', 1500);
+  });
+}
+
+function renderDiag(data) {
+  const wrap = document.getElementById('diag-wrap');
+  const out = document.getElementById('diag-out');
+  const label = document.getElementById('diag-label');
+  if (!data?.debug) {
+    wrap.style.display = 'none';
+    out.textContent = '';
+    lastDiagJson = '';
+    return;
+  }
+  lastDiagJson = JSON.stringify(data.debug, null, 2);
+  label.textContent = 'Diagnostics · ' + lastDiagJson.length + ' chars';
+  out.innerHTML = syntaxHighlight(lastDiagJson);
+  wrap.style.display = 'block';
+}
+
+function renderSlices(data) {
+  const wrap = document.getElementById('slices-wrap');
+  const out = document.getElementById('slices-out');
+  const label = document.getElementById('slices-label');
+  if (currentEndpoint !== 'reports' || data?.status !== 'ok' || !data?.data) {
+    wrap.style.display = 'none';
+    out.textContent = '';
+    return;
+  }
+  const d = data.data;
+  const summary = {
+    current_work_users: (d.current_work || []).length,
+    period_done_users: (d.period_done || []).length,
+    period_in_progress_users: (d.period_in_progress || []).length,
+    overall_status_summary: d.status_summary?.overall || null,
+  };
+  const pretty = JSON.stringify(summary, null, 2);
+  label.textContent = 'Report Slices · ' + pretty.length + ' chars';
+  out.innerHTML = syntaxHighlight(pretty);
+  wrap.style.display = 'block';
+}
+
+function renderDeptPicker(data) {
+  const wrap = document.getElementById('dept-picker-wrap');
+  const body = document.getElementById('dept-picker-body');
+  const currentLabel = document.getElementById('dept-current-label');
+
+  if (currentEndpoint !== 'reports' || data?.status !== 'ok' || !Array.isArray(data?.data?.dept_tree)) {
+    wrap.style.display = 'none';
+    body.innerHTML = '';
+    currentLabel.textContent = '';
+    if (currentEndpoint === 'reports') {
+      const select = document.getElementById('i-dept_id');
+      if (select) {
+        select.innerHTML = '<option value="">Нет отделов (смотри Diagnostics)</option>';
+      }
+    }
+    return;
+  }
+
+  const selected = Number(data?.data?.selected_dept_id || 0);
+  fillDeptSelectFromTree(data.data.dept_tree || [], selected);
+  currentLabel.textContent = selected ? ('Текущий: #' + selected) : '';
+  body.innerHTML = '';
+
+  const roots = data.data.dept_tree || [];
+  roots.forEach(node => {
+    body.appendChild(renderDeptNode(node, 0, selected));
+  });
+
+  wrap.style.display = '';
+}
+
+function fillDeptSelectFromTree(tree, selectedDeptId) {
+  const select = document.getElementById('i-dept_id');
+  if (!select) return;
+  select.innerHTML = '';
+
+  const emptyOpt = document.createElement('option');
+  emptyOpt.value = '';
+  emptyOpt.textContent = 'Выберите отдел';
+  select.appendChild(emptyOpt);
+
+  const pushNode = (node, level) => {
+    const opt = document.createElement('option');
+    opt.value = String(node.id);
+    opt.textContent = `${'— '.repeat(level)}${node.name} (#${node.id})`;
+    if (Number(node.id) === Number(selectedDeptId)) opt.selected = true;
+    select.appendChild(opt);
+    (node.children || []).forEach((child) => pushNode(child, level + 1));
+  };
+
+  (tree || []).forEach((node) => pushNode(node, 0));
+  if ((tree || []).length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Пустое дерево отделов (включи debug/ws_diag)';
+    select.appendChild(opt);
+  }
+  syncExpandDeptFromSelect();
+}
+
+function syncExpandDeptFromSelect() {
+  const deptVal = document.getElementById('i-dept_id')?.value || '';
+  const expand = document.getElementById('i-expand_dept');
+  if (expand) expand.value = deptVal;
+}
+
+async function fetchReportsDeptTree() {
+  const deptSelect = document.getElementById('i-dept_id');
+  if (!deptSelect) return;
+  if (deptSelect.options.length > 1) return;
+
+  try {
+    const debug = document.getElementById('i-debug').value;
+    const wsDiag = document.getElementById('i-ws_diag').value;
+    const wsDiagLevel = document.getElementById('i-ws_diag_level').value;
+    const params = new URLSearchParams({ debug, report: 'time_tracking' });
+    if (wsDiag === 'Y') {
+      params.set('ws_diag', 'Y');
+      params.set('ws_diag_level', wsDiagLevel);
+    }
+    const res = await fetch(BASE + 'reports.php?' + params.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const raw = await res.text();
+    const data = JSON.parse(raw);
+    if (data?.status === 'ok' && Array.isArray(data?.data?.dept_tree)) {
+      fillDeptSelectFromTree(data.data.dept_tree, data.data.selected_dept_id || 0);
+      document.getElementById('last-result-summary').textContent =
+        'reports tree preload: ok · roots=' + (data.data.dept_tree?.length || 0);
+    } else {
+      document.getElementById('last-result-summary').textContent =
+        'reports tree preload: error · ' + (data?.message || 'unknown');
+      const select = document.getElementById('i-dept_id');
+      if (select) select.innerHTML = '<option value="">Ошибка загрузки дерева</option>';
+    }
+  } catch (e) {
+    document.getElementById('last-result-summary').textContent =
+      'reports tree preload failed: ' + (e?.message || 'unknown');
+    const select = document.getElementById('i-dept_id');
+    if (select) select.innerHTML = '<option value="">Ошибка preload (смотри summary)</option>';
+  }
+}
+
+function renderDeptNode(node, level, selectedDeptId) {
+  const container = document.createElement('div');
+  const row = document.createElement('div');
+  row.className = 'dept-row';
+  row.style.marginLeft = (level * 14) + 'px';
+
+  const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+  const isExpanded = deptExpanded.has(node.id) || node.is_current;
+
+  const toggle = document.createElement('button');
+  toggle.className = 'dept-toggle';
+  toggle.textContent = hasChildren ? (isExpanded ? '▾' : '▸') : '';
+  if (hasChildren) {
+    toggle.onclick = () => {
+      if (deptExpanded.has(node.id)) deptExpanded.delete(node.id);
+      else deptExpanded.add(node.id);
+      run();
+    };
+  } else {
+    toggle.disabled = true;
+  }
+
+  const btn = document.createElement('button');
+  btn.className = 'dept-pick-btn' + (Number(node.id) === Number(selectedDeptId) ? ' active' : '');
+  btn.textContent = '#' + node.id + ' ' + (node.name || ('Отдел ' + node.id));
+  btn.onclick = () => {
+    document.getElementById('i-dept_id').value = node.id;
+    document.getElementById('i-expand_dept').value = node.id;
+    run();
+  };
+
+  row.appendChild(toggle);
+  row.appendChild(btn);
+  container.appendChild(row);
+
+  if (hasChildren && isExpanded) {
+    node.children.forEach(child => {
+      container.appendChild(renderDeptNode(child, level + 1, selectedDeptId));
+    });
+  }
+  return container;
 }
 
 // Проверка авторизации

@@ -9,7 +9,7 @@
 ```
 workspace_project/
 ├── php/
-│   ├── api/workspace/          → Эндпоинты (копировать в /local/api/workspace/)
+│   ├── api/workspace/          → Эндпоинты (копировать в /local/ws/api/workspace/)
 │   │   ├── bootstrap.php       → Инициализация сессии
 │   │   ├── process_items.php   → Список заявок
 │   │   ├── deal_detail.php     → Детали одной заявки
@@ -49,7 +49,7 @@ workspace_project/
 
 ```bash
 # Эндпоинты
-cp -r php/api/workspace/ /local/api/workspace/
+cp -r php/api/workspace/ /local/ws/api/workspace/
 
 # Конфиги воркспейса
 cp php/bproc/processes/deal_tkp_workspace.php /local/bproc/processes/
@@ -73,7 +73,7 @@ mkdir -p /local/bproc/workspace_roles/
 
 Открыть в браузере (с авторизованной сессией Б24):
 ```
-/local/api/workspace/test.html
+/local/ws/api/workspace/test.html
 ```
 
 Кнопка `Cmd+Enter` / `Ctrl+Enter` — запустить запрос.
@@ -151,8 +151,8 @@ tail -f /local/bproc/logs/ws_deal_detail.txt
 
 ### Тестовая страница эндпоинтов
 
-`/local/api/workspace/test.html` — темный API-инспектор с подсветкой JSON.
-Поддерживает debug=Y, автозаполнение entity_id из первого результата.
+`/local/ws/api/workspace/test.html` — темный API-инспектор с подсветкой JSON.
+Поддерживает `debug=Y`, `ws_diag=Y`, `ws_diag_level=1..3`, отдельный блок Diagnostics и автозаполнение `entity_id`.
 
 ---
 
