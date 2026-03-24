@@ -47,7 +47,11 @@ export function ReportsScreen() {
   const period = reportsData?.period || {}
   const heatmapEnabled = React.useMemo(() => {
     try {
-      return new URLSearchParams(window.location.search).get('ws_heatmap') === 'Y'
+      const href = String(window.location.href || '')
+      const search = String(window.location.search || '')
+      const hash = String(window.location.hash || '')
+      const combined = `${href}&${search}&${hash}`.toLowerCase()
+      return combined.includes('ws_heatmap=y')
     } catch {
       return false
     }
