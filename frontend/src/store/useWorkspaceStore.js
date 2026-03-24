@@ -20,6 +20,26 @@ function writeReportsPrefs(partial) {
 }
 
 const reportsPrefs = readReportsPrefs()
+const EMPTY_REPORT_TASK_DATES = {
+  created: { from: '', to: '' },
+  plan_start: { from: '', to: '' },
+  plan_end: { from: '', to: '' },
+  deadline: { from: '', to: '' },
+  closed: { from: '', to: '' },
+}
+
+function normalizeTaskDates(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const out = {}
+  Object.keys(EMPTY_REPORT_TASK_DATES).forEach((key) => {
+    const row = src[key] || {}
+    out[key] = {
+      from: typeof row.from === 'string' ? row.from : '',
+      to: typeof row.to === 'string' ? row.to : '',
+    }
+  })
+  return out
+}
 
 export const useWorkspaceStore = create((set, get) => ({
   // ── Bootstrap ─────────────────────────────────────────────────────────────
@@ -59,12 +79,16 @@ export const useWorkspaceStore = create((set, get) => ({
   reportsDeptId:      reportsPrefs.reportsDeptId ?? null,
   reportsDateFrom:    reportsPrefs.reportsDateFrom ?? '',
   reportsDateTo:      reportsPrefs.reportsDateTo ?? '',
-  reportsPeriodPreset: reportsPrefs.reportsPeriodPreset ?? 'month',
+  reportsPeriodPreset: reportsPrefs.reportsPeriodPreset ?? 'custom',
+  reportsTaskDates: normalizeTaskDates(reportsPrefs.reportsTaskDates),
   reportsGroupMode:   reportsPrefs.reportsGroupMode ?? 'users_projects',
   reportsIncludeSubdepts: reportsPrefs.reportsIncludeSubdepts ?? true,
   reportsSortBy:      reportsPrefs.reportsSortBy ?? 'hours_desc',
   reportsExpandedDeptIds: reportsPrefs.reportsExpandedDeptIds ?? [],
   reportsEmployeeId: reportsPrefs.reportsEmployeeId ?? '',
+  reportsProjectId: reportsPrefs.reportsProjectId ?? '',
+  reportsView: reportsPrefs.reportsView ?? 'workload',
+  reportsPlanningScale: reportsPrefs.reportsPlanningScale ?? 'day',
   reportsUserModal: null,
   reportsProjectModal: null,
   isLoadingReports:   false,
@@ -76,15 +100,19 @@ export const useWorkspaceStore = create((set, get) => ({
     try {
       const data = await api.bootstrap()
       const firstActive = data.nav.find(n => !n.disabled && n.key !== 'reports')
+      const hasReports = data.nav.some(n => !n.disabled && n.key === 'reports')
+      const initialScreen = firstActive ? 'deals' : (hasReports ? 'reports' : 'deals')
       set({
         user:           data.user,
         nav:            data.nav,
         canAnalytics:   data.can_analytics,
         isBootstrapped: true,
         activeProcessKey: firstActive?.key ?? null,
+        activeScreen: initialScreen,
         bootstrapError: null,
       })
-      if (firstActive) get().loadItems(firstActive.key)
+      if (initialScreen === 'deals' && firstActive) get().loadItems(firstActive.key)
+      if (initialScreen === 'reports') get().loadReports()
     } catch (e) {
       set({ bootstrapError: e.message, isBootstrapped: true })
     }
@@ -96,6 +124,13 @@ export const useWorkspaceStore = create((set, get) => ({
   },
 
   setActiveScreen: (screen) => {
+    // Если нет доступного процесса, экран заявок показывать нельзя.
+    if (screen === 'deals' && !get().activeProcessKey) {
+      set({ activeScreen: 'reports' })
+      get().loadReports()
+      return
+    }
+
     set({ activeScreen: screen })
     if (screen === 'analytics') {
       const key    = get().activeProcessKey
@@ -169,11 +204,23 @@ export const useWorkspaceStore = create((set, get) => ({
       dept_id: overrides.dept_id ?? prev.reportsDeptId ?? undefined,
       date_from: overrides.date_from ?? (prev.reportsDateFrom || undefined),
       date_to: overrides.date_to ?? (prev.reportsDateTo || undefined),
-      period_preset: overrides.period_preset ?? prev.reportsPeriodPreset ?? 'month',
+      period_preset: overrides.period_preset ?? prev.reportsPeriodPreset ?? 'custom',
       group_mode: overrides.group_mode ?? prev.reportsGroupMode ?? 'users_projects',
       include_subdepts: (overrides.include_subdepts ?? prev.reportsIncludeSubdepts) ? 'Y' : 'N',
       sort_by: overrides.sort_by ?? prev.reportsSortBy ?? 'hours_desc',
       expand_dept: overrides.expand_dept ?? undefined,
+      view: overrides.view ?? prev.reportsView ?? 'workload',
+      planning_scale: overrides.planning_scale ?? prev.reportsPlanningScale ?? 'day',
+      created_from: overrides.created_from ?? (prev.reportsTaskDates?.created?.from || undefined),
+      created_to: overrides.created_to ?? (prev.reportsTaskDates?.created?.to || undefined),
+      plan_start_from: overrides.plan_start_from ?? (prev.reportsTaskDates?.plan_start?.from || undefined),
+      plan_start_to: overrides.plan_start_to ?? (prev.reportsTaskDates?.plan_start?.to || undefined),
+      plan_end_from: overrides.plan_end_from ?? (prev.reportsTaskDates?.plan_end?.from || undefined),
+      plan_end_to: overrides.plan_end_to ?? (prev.reportsTaskDates?.plan_end?.to || undefined),
+      deadline_from: overrides.deadline_from ?? (prev.reportsTaskDates?.deadline?.from || undefined),
+      deadline_to: overrides.deadline_to ?? (prev.reportsTaskDates?.deadline?.to || undefined),
+      closed_from: overrides.closed_from ?? (prev.reportsTaskDates?.closed?.from || undefined),
+      closed_to: overrides.closed_to ?? (prev.reportsTaskDates?.closed?.to || undefined),
     }
     set({ isLoadingReports: true, reportsError: null })
     try {
@@ -187,6 +234,15 @@ export const useWorkspaceStore = create((set, get) => ({
         reportsGroupMode: params.group_mode,
         reportsIncludeSubdepts: params.include_subdepts === 'Y',
         reportsSortBy: params.sort_by,
+        reportsView: params.view,
+        reportsPlanningScale: params.planning_scale,
+        reportsTaskDates: normalizeTaskDates({
+          created: { from: params.created_from || '', to: params.created_to || '' },
+          plan_start: { from: params.plan_start_from || '', to: params.plan_start_to || '' },
+          plan_end: { from: params.plan_end_from || '', to: params.plan_end_to || '' },
+          deadline: { from: params.deadline_from || '', to: params.deadline_to || '' },
+          closed: { from: params.closed_from || '', to: params.closed_to || '' },
+        }),
         isLoadingReports: false,
       })
       writeReportsPrefs({
@@ -197,6 +253,15 @@ export const useWorkspaceStore = create((set, get) => ({
         reportsGroupMode: params.group_mode,
         reportsIncludeSubdepts: params.include_subdepts === 'Y',
         reportsSortBy: params.sort_by,
+        reportsView: params.view,
+        reportsPlanningScale: params.planning_scale,
+        reportsTaskDates: normalizeTaskDates({
+          created: { from: params.created_from || '', to: params.created_to || '' },
+          plan_start: { from: params.plan_start_from || '', to: params.plan_start_to || '' },
+          plan_end: { from: params.plan_end_from || '', to: params.plan_end_to || '' },
+          deadline: { from: params.deadline_from || '', to: params.deadline_to || '' },
+          closed: { from: params.closed_from || '', to: params.closed_to || '' },
+        }),
       })
     } catch (e) {
       set({ reportsError: e.message, isLoadingReports: false })
@@ -219,6 +284,23 @@ export const useWorkspaceStore = create((set, get) => ({
     set({ reportsPeriodPreset: periodPreset })
     writeReportsPrefs({ reportsPeriodPreset: periodPreset })
     get().loadReports({ period_preset: periodPreset })
+  },
+
+  setReportsTaskDateRange: (dateKey, from, to) => {
+    const prev = get().reportsTaskDates || EMPTY_REPORT_TASK_DATES
+    if (!prev[dateKey]) return
+    const next = normalizeTaskDates({ ...prev, [dateKey]: { from: from || '', to: to || '' } })
+    set({ reportsTaskDates: next })
+    writeReportsPrefs({ reportsTaskDates: next })
+    get().loadReports({
+      period_preset: 'custom',
+      [`${dateKey}_from`]: next[dateKey].from || undefined,
+      [`${dateKey}_to`]: next[dateKey].to || undefined,
+    })
+  },
+
+  clearReportsTaskDateRange: (dateKey) => {
+    get().setReportsTaskDateRange(dateKey, '', '')
   },
 
   setReportsGroupMode: (groupMode) => {
@@ -244,34 +326,71 @@ export const useWorkspaceStore = create((set, get) => ({
     writeReportsPrefs({ reportsEmployeeId: employeeId })
   },
 
+  setReportsProject: (projectId) => {
+    set({ reportsProjectId: projectId })
+    writeReportsPrefs({ reportsProjectId: projectId })
+  },
+
+  setReportsView: (view) => {
+    set({ reportsView: view })
+    writeReportsPrefs({ reportsView: view })
+    get().loadReports({ view })
+  },
+
+  setReportsPlanningScale: (scale) => {
+    set({ reportsPlanningScale: scale })
+    writeReportsPrefs({ reportsPlanningScale: scale })
+    get().loadReports({ planning_scale: scale, view: 'planning' })
+  },
+
   resetReportsFilters: () => {
     set({
       reportsEmployeeId: '',
+      reportsProjectId: '',
+      reportsView: 'workload',
+      reportsPlanningScale: 'day',
       reportsGroupMode: 'employees',
       reportsSortBy: 'hours_desc',
-      reportsPeriodPreset: 'month',
+      reportsPeriodPreset: 'custom',
       reportsIncludeSubdepts: true,
       reportsDateFrom: '',
       reportsDateTo: '',
+      reportsTaskDates: normalizeTaskDates({}),
     })
     writeReportsPrefs({
       reportsEmployeeId: '',
+      reportsProjectId: '',
+      reportsView: 'workload',
+      reportsPlanningScale: 'day',
       reportsGroupMode: 'employees',
       reportsSortBy: 'hours_desc',
-      reportsPeriodPreset: 'month',
+      reportsPeriodPreset: 'custom',
       reportsIncludeSubdepts: true,
       reportsDateFrom: '',
       reportsDateTo: '',
+      reportsTaskDates: normalizeTaskDates({}),
     })
     const deptId = get().reportsDeptId
     get().loadReports({
       dept_id: deptId ?? undefined,
-      period_preset: 'month',
+      period_preset: 'custom',
       group_mode: 'employees',
       include_subdepts: true,
       sort_by: 'hours_desc',
+      view: 'workload',
+      planning_scale: 'day',
       date_from: undefined,
       date_to: undefined,
+      created_from: undefined,
+      created_to: undefined,
+      plan_start_from: undefined,
+      plan_start_to: undefined,
+      plan_end_from: undefined,
+      plan_end_to: undefined,
+      deadline_from: undefined,
+      deadline_to: undefined,
+      closed_from: undefined,
+      closed_to: undefined,
       expand_dept: deptId ?? undefined,
     })
   },
@@ -292,10 +411,22 @@ export const useWorkspaceStore = create((set, get) => ({
       dept_id: s.reportsDeptId ?? undefined,
       date_from: s.reportsDateFrom || undefined,
       date_to: s.reportsDateTo || undefined,
-      period_preset: s.reportsPeriodPreset || 'month',
+      period_preset: s.reportsPeriodPreset || 'custom',
       group_mode: s.reportsGroupMode || 'users_projects',
       include_subdepts: s.reportsIncludeSubdepts ? 'Y' : 'N',
       sort_by: s.reportsSortBy || 'hours_desc',
+      view: s.reportsView || 'workload',
+      planning_scale: s.reportsPlanningScale || 'day',
+      created_from: s.reportsTaskDates?.created?.from || undefined,
+      created_to: s.reportsTaskDates?.created?.to || undefined,
+      plan_start_from: s.reportsTaskDates?.plan_start?.from || undefined,
+      plan_start_to: s.reportsTaskDates?.plan_start?.to || undefined,
+      plan_end_from: s.reportsTaskDates?.plan_end?.from || undefined,
+      plan_end_to: s.reportsTaskDates?.plan_end?.to || undefined,
+      deadline_from: s.reportsTaskDates?.deadline?.from || undefined,
+      deadline_to: s.reportsTaskDates?.deadline?.to || undefined,
+      closed_from: s.reportsTaskDates?.closed?.from || undefined,
+      closed_to: s.reportsTaskDates?.closed?.to || undefined,
     })
     const a = document.createElement('a')
     a.href = url

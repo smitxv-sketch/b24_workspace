@@ -7,7 +7,7 @@ import { AnalyticsScreen } from './components/analytics/AnalyticsScreen.jsx'
 import { ReportsScreen } from './components/reports/ReportsScreen.jsx'
 
 export default function App() {
-  const { isBootstrapped, bootstrapError, activeScreen, bootstrap, refreshItems } = useWorkspaceStore()
+  const { isBootstrapped, bootstrapError, nav, activeScreen, activeProcessKey, bootstrap, refreshItems } = useWorkspaceStore()
   const pollRef = useRef(null)
 
   // Bootstrap при загрузке
@@ -34,13 +34,30 @@ export default function App() {
   if (!isBootstrapped) return <LoadingScreen />
   if (bootstrapError)   return <ErrorScreen message={bootstrapError} onRetry={bootstrap} />
 
+  const hasReports = (nav || []).some(item => !item.disabled && item.key === 'reports')
+  const hasDealsProcesses = (nav || []).some(item => !item.disabled && item.key !== 'reports')
+  const canShowDeals = Boolean(activeProcessKey) && hasDealsProcesses
+  const canShowAnalytics = Boolean(activeProcessKey)
+  const canShowReports = hasReports
+
+  // Универсальная защита экрана: рендерим только то, к чему есть доступ.
+  const effectiveScreen = (() => {
+    if (activeScreen === 'deals' && canShowDeals) return 'deals'
+    if (activeScreen === 'analytics' && canShowAnalytics) return 'analytics'
+    if (activeScreen === 'reports' && canShowReports) return 'reports'
+    if (canShowReports) return 'reports'
+    if (canShowDeals) return 'deals'
+    if (canShowAnalytics) return 'analytics'
+    return 'reports'
+  })()
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#f5f5f7' }}>
       <TopNav />
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {activeScreen === 'deals'     && <DealsScreen />}
-        {activeScreen === 'analytics' && <AnalyticsScreen />}
-        {activeScreen === 'reports'   && <ReportsScreen />}
+        {effectiveScreen === 'deals' && <DealsScreen />}
+        {effectiveScreen === 'analytics' && <AnalyticsScreen />}
+        {effectiveScreen === 'reports' && <ReportsScreen />}
       </div>
       <Sheet />
     </div>

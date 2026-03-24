@@ -156,6 +156,13 @@ tail -f /local/bproc/logs/ws_deal_detail.txt
 
 ---
 
+## Документация отчётов
+
+- Подробное описание представлений, фильтров и бизнес-целей:
+  - [`docs/reports-guide-ru.md`](docs/reports-guide-ru.md)
+
+---
+
 ## Добавить новый процесс (чеклист)
 
 1. Создать `/local/bproc/processes/{key}_workspace.php`

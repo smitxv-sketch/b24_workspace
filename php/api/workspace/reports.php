@@ -25,6 +25,13 @@ require_once __DIR__ . '/_paths.php';
 require_once wsDocPath('/bitrix/modules/main/include/prolog_before.php');
 require_once wsDocPath(wsBprocLibRoot() . '/BpLog.php');
 require_once __DIR__ . '/_shared.php';
+require_once __DIR__ . '/reports/bootstrap.php';
+require_once __DIR__ . '/reports/period.php';
+require_once __DIR__ . '/reports/filters.php';
+require_once __DIR__ . '/reports/tasks_source.php';
+require_once __DIR__ . '/reports/planning_view.php';
+require_once __DIR__ . '/reports/heatmap_view.php';
+require_once __DIR__ . '/reports/response.php';
 
 BpLog::registerFatalHandler('ws_reports');
 BpLog::init(fn(string $m) => null, BpLog::LEVEL_OFF, BpLog::LEVEL_DEBUG);
@@ -40,7 +47,8 @@ $currentUserId = (int)$USER->GetID();
 define('WS_DEBUG', !empty($_GET['debug']) && $_GET['debug'] === 'Y' && $USER->IsAdmin());
 
 try {
-    $report = (string)($_GET['report'] ?? '');
+    $req = wsReportsReadRequest();
+    $report = (string)$req['report'];
     if ($report !== 'time_tracking') wsJsonErr('report_not_supported', 400);
 
     \Bitrix\Main\Loader::includeModule('intranet');
@@ -48,18 +56,21 @@ try {
     \Bitrix\Main\Loader::includeModule('socialnetwork');
     \Bitrix\Main\Loader::includeModule('iblock');
 
-    $includeSubdepts = strtoupper((string)($_GET['include_subdepts'] ?? 'Y')) !== 'N';
-    $groupMode = (string)($_GET['group_mode'] ?? 'users_projects');
-    $sortBy = (string)($_GET['sort_by'] ?? 'hours_desc');
-    $periodPreset = (string)($_GET['period_preset'] ?? 'month');
-    $format = strtolower((string)($_GET['format'] ?? 'json'));
-    $schemaDebug = strtoupper((string)($_GET['schema_debug'] ?? 'N')) === 'Y';
-    $dataDebug = strtoupper((string)($_GET['data_debug'] ?? 'N')) === 'Y';
+    $includeSubdepts = (bool)$req['include_subdepts'];
+    $groupMode = (string)$req['group_mode'];
+    $sortBy = (string)$req['sort_by'];
+    $periodPreset = (string)$req['period_preset'];
+    $format = (string)$req['format'];
+    $schemaDebug = (bool)$req['schema_debug'];
+    $dataDebug = (bool)$req['data_debug'];
+    $view = (string)$req['view'];
+    $planningScale = (string)$req['planning_scale'];
+    $heatmapEnabled = strtoupper((string)($_GET['ws_heatmap'] ?? 'N')) === 'Y';
 
     $period = wsResolveReportPeriod(
         $periodPreset,
-        (string)($_GET['date_from'] ?? ''),
-        (string)($_GET['date_to'] ?? '')
+        (string)$req['date_from'],
+        (string)$req['date_to']
     );
     $dateFilters = wsReadTaskDateFilters($_GET);
 
@@ -67,7 +78,7 @@ try {
     $allowedDeptIdsAll = wsGetAllowedDepartmentIds($currentUserId, true);
     if (empty($allowedDeptIdsAll)) wsJsonErr('no_allowed_departments', 403);
 
-    $requestedDeptId = (int)($_GET['dept_id'] ?? 0);
+    $requestedDeptId = (int)$req['requested_dept_id'];
     $selectedDeptId = $requestedDeptId > 0 ? $requestedDeptId : (int)$allowedDeptIdsAll[0];
     if (!in_array($selectedDeptId, $allowedDeptIdsAll, true)) {
         WsDiag::add('reports_forbidden_dept_fallback', [
@@ -78,7 +89,7 @@ try {
         $selectedDeptId = (int)$allowedDeptIdsAll[0];
     }
 
-    $expandDept = (int)($_GET['expand_dept'] ?? 0);
+    $expandDept = (int)$req['expand_dept'];
     WsDiag::add('reports_request', [
         'report' => $report,
         'selected_dept' => $selectedDeptId,
@@ -92,6 +103,9 @@ try {
         'allowed_depts' => $allowedDeptIdsAll,
         'schema_debug' => $schemaDebug ? 'Y' : 'N',
         'data_debug' => $dataDebug ? 'Y' : 'N',
+        'view' => $view,
+        'planning_scale' => $planningScale,
+        'heatmap_enabled' => $heatmapEnabled ? 'Y' : 'N',
     ], 1);
 
     $deptScope = wsResolveDeptScope($selectedDeptId, $includeSubdepts, $allowedDeptIdsAll);
@@ -121,6 +135,24 @@ try {
         exit;
     }
 
+    $planning = null;
+    $heatmap = null;
+    if ($view === 'planning') {
+        $planning = wsBuildPlanningView([
+            'selected_dept_id' => $selectedDeptId,
+            'dept_scope' => $deptScope,
+            'planning_scale' => $planningScale,
+            'date_filters' => $dateFilters,
+            'task_field_map' => $taskFieldMap,
+        ]);
+    } elseif ($view === 'heatmap' && $heatmapEnabled) {
+        $heatmap = wsBuildHeatmapView([
+            'selected_dept_id' => $selectedDeptId,
+            'dept_scope' => $deptScope,
+            'planning_scale' => $planningScale,
+        ]);
+    }
+
     $schema = null;
     if ($schemaDebug) {
         $schema = wsCollectTasksSchema();
@@ -135,32 +167,24 @@ try {
         ], 1);
     }
 
-    wsJsonOk([
-        'period' => [
-            'from' => $period['from'],
-            'to' => $period['to'],
-            'label' => $period['label'],
-            'preset' => $period['preset'],
-        ],
-        'filters' => [
-            'group_mode' => $groupMode,
-            'include_subdepts' => $includeSubdepts ? 'Y' : 'N',
-            'sort_by' => $sortBy,
-            'date_filters' => $dateFilters,
-        ],
+    wsJsonOk(wsBuildReportsResponse([
+        'period' => $period,
+        'group_mode' => $groupMode,
+        'include_subdepts' => $includeSubdepts,
+        'sort_by' => $sortBy,
+        'date_filters' => $dateFilters,
+        'view' => $view,
+        'planning_scale' => $planningScale,
         'selected_dept_id' => $selectedDeptId,
-        'expand_dept' => $expandDept > 0 ? $expandDept : $selectedDeptId,
+        'expand_dept' => $expandDept,
         'dept_tree' => $deptTree,
-        'rows' => $reportData['rows'],
-        'totals' => $reportData['totals'],
-        'current_work' => $reportData['current_work'],
-        'period_done' => $reportData['period_done'],
-        'period_in_progress' => $reportData['period_in_progress'],
-        'status_summary' => $reportData['status_summary'],
-        'task_fields' => $taskFieldMap,
+        'report_data' => $reportData,
+        'task_field_map' => $taskFieldMap,
         'schema' => $schema,
-        'data_debug' => $dataDebugPayload,
-    ]);
+        'data_debug_payload' => $dataDebugPayload,
+        'planning' => $planning,
+        'heatmap' => $heatmap,
+    ]));
 } catch (\Throwable $e) {
     wsHandleThrowable('ws_reports', $e);
 }
@@ -190,8 +214,16 @@ function wsResolveReportPeriod(string $preset, string $from, string $to): array 
             $toDate = $today->format('Y-m-d');
             break;
         case 'custom':
-            $fromDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) ? $from : date('Y-m-01');
-            $toDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) ? $to : date('Y-m-t');
+            $hasFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) === 1;
+            $hasTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) === 1;
+            if (!$hasFrom && !$hasTo) {
+                // Без "главной даты": если период не задан, берём полный диапазон.
+                $fromDate = '2000-01-01';
+                $toDate = $today->format('Y-m-d');
+            } else {
+                $fromDate = $hasFrom ? $from : '2000-01-01';
+                $toDate = $hasTo ? $to : $today->format('Y-m-d');
+            }
             break;
         case 'month':
         default:
@@ -209,7 +241,9 @@ function wsResolveReportPeriod(string $preset, string $from, string $to): array 
 
     $months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
     $label = $months[(int)date('n', strtotime($fromDate)) - 1] . ' ' . date('Y', strtotime($fromDate));
-    if (substr($fromDate, 0, 7) !== substr($toDate, 0, 7)) {
+    if ($preset === 'custom' && $fromDate === '2000-01-01' && $toDate === $today->format('Y-m-d')) {
+        $label = 'Все время';
+    } elseif (substr($fromDate, 0, 7) !== substr($toDate, 0, 7)) {
         $label = $fromDate . ' — ' . $toDate;
     }
 
@@ -434,6 +468,8 @@ function wsBuildTimeTrackingReport(array $options): array {
     ], 1);
 
     $statusExpr = !empty($taskFieldMap['status']) ? 'MAX(t.STATUS)' : 'NULL';
+    $createdExpr = !empty($taskFieldMap['created_date']) ? 'MAX(t.CREATED_DATE)' : 'NULL';
+    $closedExpr = !empty($taskFieldMap['closed_date']) ? 'MAX(t.CLOSED_DATE)' : 'NULL';
     $deadlineExpr = !empty($taskFieldMap['deadline']) ? 'MAX(t.DEADLINE)' : 'NULL';
     $planStartExpr = !empty($taskFieldMap['plan_start']) ? 'MAX(t.START_DATE_PLAN)' : 'NULL';
     $planEndExpr = !empty($taskFieldMap['plan_end']) ? 'MAX(t.END_DATE_PLAN)' : 'NULL';
@@ -450,6 +486,8 @@ function wsBuildTimeTrackingReport(array $options): array {
             DATE(te.CREATED_DATE)                    AS elapsed_date,
             ROUND(SUM(te.MINUTES) / 60, 2)           AS hours,
             {$statusExpr}                            AS task_status,
+            {$createdExpr}                           AS task_created_date,
+            {$closedExpr}                            AS task_closed_date,
             {$deadlineExpr}                          AS task_deadline,
             {$planStartExpr}                         AS task_plan_start,
             {$planEndExpr}                           AS task_plan_end,
@@ -491,6 +529,8 @@ function wsBuildTimeTrackingReport(array $options): array {
         $planHours = ($planHoursRaw !== null && $planHoursRaw > 0) ? $planHoursRaw : null;
         $taskStatusCode = isset($row['task_status']) ? (int)$row['task_status'] : null;
         $taskStatusLabel = wsTaskStatusLabel($taskStatusCode);
+        $createdDate = wsNormalizeDate((string)($row['task_created_date'] ?? ''));
+        $closedDate = wsNormalizeDate((string)($row['task_closed_date'] ?? ''));
         $deadline = wsNormalizeDate((string)($row['task_deadline'] ?? ''));
         $planStart = wsNormalizeDate((string)($row['task_plan_start'] ?? ''));
         $planEnd = wsNormalizeDate((string)($row['task_plan_end'] ?? ''));
@@ -505,6 +545,8 @@ function wsBuildTimeTrackingReport(array $options): array {
             'task_name' => (string)$row['task_name'],
             'hours' => round($hours, 2),
             'date' => (string)$row['elapsed_date'],
+            'created_date' => $createdDate,
+            'closed_date' => $closedDate,
             'status_code' => $taskStatusCode,
             'status_label' => $taskStatusLabel,
             'deadline' => $deadline,
@@ -522,6 +564,8 @@ function wsBuildTimeTrackingReport(array $options): array {
             'project_name' => $projectId > 0 ? (string)($row['project_name'] ?: ('Проект #' . $projectId)) : 'Без проекта',
             'hours' => round($hours, 2),
             'date' => (string)$row['elapsed_date'],
+            'created_date' => $createdDate,
+            'closed_date' => $closedDate,
             'status_code' => $taskStatusCode,
             'status_label' => $taskStatusLabel,
             'deadline' => $deadline,
@@ -915,6 +959,8 @@ function wsBuildCurrentWorkRows(array $users, string $dateFrom, string $dateTo, 
     $safeTo = $DB->ForSql($dateTo . ' 23:59:59');
 
     $statusExpr = !empty($taskFieldMap['status']) ? 't.STATUS' : 'NULL';
+    $createdExpr = !empty($taskFieldMap['created_date']) ? 't.CREATED_DATE' : 'NULL';
+    $closedExpr = !empty($taskFieldMap['closed_date']) ? 't.CLOSED_DATE' : 'NULL';
     $deadlineExpr = !empty($taskFieldMap['deadline']) ? 't.DEADLINE' : 'NULL';
     $planStartExpr = !empty($taskFieldMap['plan_start']) ? 't.START_DATE_PLAN' : 'NULL';
     $planEndExpr = !empty($taskFieldMap['plan_end']) ? 't.END_DATE_PLAN' : 'NULL';
@@ -929,6 +975,8 @@ function wsBuildCurrentWorkRows(array $users, string $dateFrom, string $dateTo, 
             {$projectIdExpr}                           AS project_id,
             sg.NAME                                    AS project_name,
             {$statusExpr}                              AS task_status,
+            {$createdExpr}                             AS task_created_date,
+            {$closedExpr}                              AS task_closed_date,
             {$deadlineExpr}                            AS task_deadline,
             {$planStartExpr}                           AS task_plan_start,
             {$planEndExpr}                             AS task_plan_end,
@@ -977,6 +1025,8 @@ function wsBuildCurrentWorkRows(array $users, string $dateFrom, string $dateTo, 
         $factHours = round((float)($r['fact_hours'] ?? 0), 2);
         $statusCode = isset($r['task_status']) ? (int)$r['task_status'] : null;
         $deadline = wsNormalizeDate((string)($r['task_deadline'] ?? ''));
+        $createdDate = wsNormalizeDate((string)($r['task_created_date'] ?? ''));
+        $closedDate = wsNormalizeDate((string)($r['task_closed_date'] ?? ''));
         $task = [
             'task_id' => (int)$r['task_id'],
             'task_name' => (string)$r['task_name'],
@@ -986,6 +1036,8 @@ function wsBuildCurrentWorkRows(array $users, string $dateFrom, string $dateTo, 
             'fact_hours' => $factHours,
             'status_code' => $statusCode,
             'status_label' => wsTaskStatusLabel($statusCode),
+            'created_date' => $createdDate,
+            'closed_date' => $closedDate,
             'deadline' => $deadline,
             'plan_start' => wsNormalizeDate((string)($r['task_plan_start'] ?? '')),
             'plan_end' => wsNormalizeDate((string)($r['task_plan_end'] ?? '')),

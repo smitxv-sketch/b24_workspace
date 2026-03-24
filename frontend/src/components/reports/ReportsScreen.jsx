@@ -3,30 +3,37 @@ import { useWorkspaceStore } from '../../store/useWorkspaceStore.js'
 import { ReportTotals } from './ReportTotals.jsx'
 import { DetailsModal } from './DetailsModal.jsx'
 import { TaskRow } from './TaskRow.jsx'
+import { PlanningView } from './planning/PlanningView.jsx'
+import { HeatmapView } from './heatmap/HeatmapView.jsx'
 
 export function ReportsScreen() {
-  const [reportView, setReportView] = React.useState('workload') // workload | occupancy
   const {
     reportsData,
     reportsDeptId,
     reportsDateFrom,
     reportsDateTo,
-    reportsPeriodPreset,
     reportsGroupMode,
     reportsIncludeSubdepts,
     reportsSortBy,
     reportsEmployeeId,
+    reportsProjectId,
+    reportsView,
+    reportsPlanningScale,
+    reportsTaskDates,
     reportsUserModal,
     reportsProjectModal,
     isLoadingReports,
     reportsError,
     setReportsDept,
-    setReportsPeriod,
-    setReportsPreset,
     setReportsGroupMode,
     setReportsIncludeSubdepts,
     setReportsSortBy,
     setReportsEmployee,
+    setReportsProject,
+    setReportsView,
+    setReportsPlanningScale,
+    setReportsTaskDateRange,
+    clearReportsTaskDateRange,
     resetReportsFilters,
     exportReportsCsv,
     openReportsUserModal,
@@ -37,11 +44,19 @@ export function ReportsScreen() {
   } = useWorkspaceStore()
 
   const period = reportsData?.period || {}
-  const rows = reportsData?.rows || []
+  const heatmapEnabled = React.useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('ws_heatmap') === 'Y'
+    } catch {
+      return false
+    }
+  }, [])
   const currentWork = reportsData?.current_work || []
   const periodDone = reportsData?.period_done || []
-  const [activeTab, setActiveTab] = React.useState('in_work')
-  const [deptSearch, setDeptSearch] = React.useState('')
+  const [taskScopes, setTaskScopes] = React.useState(['in_work'])
+  const [deptInput, setDeptInput] = React.useState('')
+  const [employeeInput, setEmployeeInput] = React.useState('')
+  const [projectInput, setProjectInput] = React.useState('')
 
   const deptOptions = React.useMemo(() => flattenDeptTree(reportsData?.dept_tree || []), [reportsData])
   const selectedDeptName = React.useMemo(() => {
@@ -50,19 +65,73 @@ export function ReportsScreen() {
     const found = deptOptions.find(d => Number(d.id) === selectedId)
     return found?.name || ''
   }, [deptOptions, reportsDeptId, reportsData])
-  const filteredDeptOptions = deptSearch
-    ? deptOptions.filter(d => d.name.toLowerCase().includes(deptSearch.toLowerCase()))
-    : deptOptions
+  const selectedDeptOption = React.useMemo(() => {
+    const id = Number(reportsDeptId || reportsData?.selected_dept_id || 0)
+    if (!id) return null
+    return deptOptions.find(d => Number(d.id) === id) || null
+  }, [deptOptions, reportsDeptId, reportsData])
+
+  const plannedRows = React.useMemo(() => filterRowsByTaskStatus(currentWork, [2]), [currentWork])
+  const inWorkRows = React.useMemo(() => filterRowsByTaskStatus(currentWork, [3, 4]), [currentWork])
+  const doneRows = React.useMemo(() => filterRowsByTaskStatus(periodDone, [5]), [periodDone])
+  const sourceRows = React.useMemo(
+    () => mergeRowsByUser({
+      planned: taskScopes.includes('planned') ? plannedRows : [],
+      in_work: taskScopes.includes('in_work') ? inWorkRows : [],
+      done: taskScopes.includes('done') ? doneRows : [],
+    }),
+    [taskScopes, plannedRows, inWorkRows, doneRows]
+  )
 
   const employeeOptions = React.useMemo(() => {
-    const src = (activeTab === 'done' ? periodDone : currentWork) || []
+    const src = sourceRows || []
     return src
       .map(r => ({ id: String(r.user_id), name: r.user_name, dept: r.dept_name }))
       .sort((a, b) => lastName(a.name).localeCompare(lastName(b.name), 'ru'))
-  }, [activeTab, currentWork, periodDone])
+  }, [sourceRows])
 
-  const sourceRows = activeTab === 'done' ? periodDone : currentWork
-  const scopedRows = (sourceRows || []).filter(r => !reportsEmployeeId || String(r.user_id) === String(reportsEmployeeId))
+  const projectOptions = React.useMemo(() => {
+    const map = new Map()
+    ;(sourceRows || []).forEach((u) => {
+      ;(u.tasks || []).forEach((t) => {
+        const id = String(t.project_id ?? '')
+        if (!id) return
+        if (!map.has(id)) {
+          map.set(id, {
+            id,
+            name: t.project_name || `Проект #${id}`,
+          })
+        }
+      })
+    })
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  }, [sourceRows])
+
+  React.useEffect(() => {
+    setDeptInput(selectedDeptOption?.breadcrumb || '')
+  }, [selectedDeptOption?.id])
+
+  React.useEffect(() => {
+    const found = employeeOptions.find(u => String(u.id) === String(reportsEmployeeId))
+    setEmployeeInput(found ? `${found.name} · ${found.dept}` : '')
+  }, [reportsEmployeeId, employeeOptions])
+
+  React.useEffect(() => {
+    const found = projectOptions.find(p => String(p.id) === String(reportsProjectId))
+    setProjectInput(found ? found.name : 'Все')
+  }, [reportsProjectId, projectOptions])
+
+  React.useEffect(() => {
+    if (!heatmapEnabled && reportsView === 'heatmap') {
+      setReportsView('workload')
+    }
+  }, [heatmapEnabled, reportsView, setReportsView])
+
+  const projectScopedRows = React.useMemo(
+    () => filterRowsByProject(sourceRows, reportsProjectId),
+    [sourceRows, reportsProjectId]
+  )
+  const scopedRows = (projectScopedRows || []).filter(r => !reportsEmployeeId || String(r.user_id) === String(reportsEmployeeId))
   const employeesSorted = [...scopedRows].sort((a, b) => lastName(a.user_name).localeCompare(lastName(b.user_name), 'ru'))
   const groupedProjects = groupByProjects(scopedRows)
   const occupancyProjects = groupByProjects(sourceRows || [])
@@ -74,42 +143,68 @@ export function ReportsScreen() {
 
   return (
     <div style={{ padding: 16, overflow: 'auto', height: '100%' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 14 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={cardStyle}>
             <div style={titleStyle}>Фильтры</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-              {[
-                ['today', 'Сегодня'],
-                ['7d', '7 дн'],
-                ['30d', '30 дн'],
-                ['month', 'Месяц'],
-                ['quarter', 'Квартал'],
-              ].map(([v, label]) => (
-                <button key={v} onClick={() => setReportsPreset(v)} style={chipStyle(reportsPeriodPreset === v)}>{label}</button>
-              ))}
-            </div>
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-              <input
-                value={deptSearch}
-                onChange={(e) => setDeptSearch(e.target.value)}
-                placeholder="Поиск подразделения..."
-                style={inputStyle}
+              <SearchableDropdown
+                value={deptInput}
+                onChange={setDeptInput}
+                placeholder="Подразделение: начните ввод..."
+                options={deptOptions.map((d) => ({
+                  id: String(d.id),
+                  label: d.breadcrumb,
+                  search: `${d.name} ${d.breadcrumb} ${d.id}`.toLowerCase(),
+                }))}
+                onSelect={(opt) => {
+                  setDeptInput(opt.label)
+                  setReportsDept(Number(opt.id))
+                }}
               />
-              <select value={String(reportsDeptId || '')} onChange={(e) => setReportsDept(Number(e.target.value) || null)} style={inputStyle}>
-                <option value="">Выберите подразделение ▼</option>
-                {filteredDeptOptions.map((d) => (
-                  <option key={d.id} value={d.id}>{d.breadcrumb}</option>
-                ))}
-              </select>
-              <select value={String(reportsEmployeeId || '')} onChange={(e) => setReportsEmployee(e.target.value)} style={inputStyle}>
-                <option value="">Все сотрудники ▼</option>
-                {employeeOptions.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name} · {u.dept}</option>
-                ))}
-              </select>
-              <input type="date" value={reportsDateFrom || period.from || ''} onChange={(e) => setReportsPeriod(e.target.value, reportsDateTo || period.to || '', 'custom')} style={inputStyle} />
-              <input type="date" value={reportsDateTo || period.to || ''} onChange={(e) => setReportsPeriod(reportsDateFrom || period.from || '', e.target.value, 'custom')} style={inputStyle} />
+              {selectedDeptOption?.breadcrumb && (
+                <div style={{ fontSize: 11, color: '#6e6e73', lineHeight: 1.35, marginTop: -2 }}>
+                  Выбрано: {selectedDeptOption.breadcrumb}
+                </div>
+              )}
+
+              <SearchableDropdown
+                value={employeeInput}
+                onChange={setEmployeeInput}
+                placeholder="Сотрудник: начните ввод..."
+                options={employeeOptions.map((u) => ({
+                  id: String(u.id),
+                  label: `${u.name} · ${u.dept}`,
+                  search: `${u.name} ${u.dept} ${u.id}`.toLowerCase(),
+                }))}
+                onSelect={(opt) => {
+                  setEmployeeInput(opt.label)
+                  setReportsEmployee(opt.id)
+                }}
+              />
+
+              <SearchableDropdown
+                value={projectInput}
+                onChange={setProjectInput}
+                placeholder="Проект: Все"
+                options={[
+                  { id: '', label: 'Все', search: 'все all' },
+                  ...projectOptions.map((p) => ({
+                    id: String(p.id),
+                    label: p.name,
+                    search: `${p.name} ${p.id}`.toLowerCase(),
+                  })),
+                ]}
+                onSelect={(opt) => {
+                  setProjectInput(opt.label)
+                  setReportsProject(opt.id || '')
+                }}
+              />
+              <TaskDateFilters
+                value={reportsTaskDates || {}}
+                onChange={setReportsTaskDateRange}
+                onClear={clearReportsTaskDateRange}
+              />
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#1d1d1f' }}>
                 <input type="checkbox" checked={!!reportsIncludeSubdepts} onChange={(e) => setReportsIncludeSubdepts(e.target.checked)} />
                 Включить подчинённые отделы
@@ -132,9 +227,11 @@ export function ReportsScreen() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 12, color: '#6e6e73' }}>Представление</span>
-                <select value={reportView} onChange={(e) => setReportView(e.target.value)} style={{ ...inputStyle, width: 170, padding: '6px 8px' }}>
+                <select value={reportsView} onChange={(e) => setReportsView(e.target.value)} style={{ ...inputStyle, width: 220, padding: '6px 8px' }}>
                   <option value="workload">Трудозатраты</option>
                   <option value="occupancy">Занятость</option>
+                  <option value="planning">Планирование Задачи/день</option>
+                  {heatmapEnabled && <option value="heatmap">Тепловая карта (факт)</option>}
                 </select>
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -143,37 +240,32 @@ export function ReportsScreen() {
                     {selectedDeptName}
                   </div>
                 )}
-                <div style={{ fontSize: 12, color: '#6e6e73' }}>{period.label || 'Период'}</div>
+                <div style={{ fontSize: 12, color: '#6e6e73' }}>{period.label || 'Все время'}</div>
               </div>
             </div>
-            {reportView === 'workload' && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                <div style={chipGroupStyle}>
-                  <button onClick={() => setReportsGroupMode('employees')} style={chipStyle(reportsGroupMode === 'employees')}>Сотрудники</button>
-                  <button onClick={() => setReportsGroupMode('departments')} style={chipStyle(reportsGroupMode === 'departments')}>Отделы</button>
-                  <button onClick={() => setReportsGroupMode('projects')} style={chipStyle(reportsGroupMode === 'projects')}>Проекты</button>
-                </div>
-                <div style={chipGroupStyle}>
-                  <button onClick={() => setActiveTab('in_work')} style={chipStyle(activeTab === 'in_work')}>Задачи в работе</button>
-                  <button onClick={() => setActiveTab('done')} style={chipStyle(activeTab === 'done')}>Выполненные задачи</button>
-                </div>
+            <ReportScopeChips
+              reportsGroupMode={reportsGroupMode}
+              setReportsGroupMode={setReportsGroupMode}
+              taskScopes={taskScopes}
+              setTaskScopes={setTaskScopes}
+            />
+            {reportsView === 'workload' && (
+              <div style={{ marginTop: 10 }}>
+                <ReportTotals totals={reportsData?.totals || {}} />
               </div>
             )}
-            <div style={{ marginTop: 10 }}>
-              <ReportTotals totals={reportsData?.totals || {}} />
-            </div>
           </div>
 
           {isLoadingReports && <div style={infoStyle}>Загрузка отчёта...</div>}
           {reportsError && <div style={{ ...infoStyle, color: '#d70015' }}>Ошибка: {reportsError}</div>}
-          {!isLoadingReports && !reportsError && rows.length === 0 && <div style={infoStyle}>Нет данных за выбранный период.</div>}
+          {!isLoadingReports && !reportsError && sourceRows.length === 0 && <div style={infoStyle}>Нет данных за выбранные фильтры.</div>}
 
-          {!isLoadingReports && !reportsError && rows.length > 0 && reportView === 'workload' && (
+          {!isLoadingReports && !reportsError && sourceRows.length > 0 && reportsView === 'workload' && (
             <div style={{ display: 'grid', gap: 12 }}>
               {reportsGroupMode === 'employees' && employeesSorted.map((u) => (
                 <GroupCard key={`u-${u.user_id}`} title={`${u.user_name} · ${u.dept_name}`} total={u.total_hours}>
                   <button onClick={() => openReportsUserModal(u)} style={smallBtnStyle}>Детали сотрудника</button>
-                  {u.tasks.map((t, i) => <TaskRow key={`${t.task_id}-${i}`} task={t} showProjectSuffix />)}
+                  {u.tasks.map((t, i) => <TaskRow key={`${t.task_id}-${i}`} task={t} showProjectSuffix viewMode={reportsView} />)}
                 </GroupCard>
               ))}
 
@@ -183,7 +275,7 @@ export function ReportsScreen() {
                   {p.users.map((u) => (
                     <div key={`pu-${u.user_id}`} style={{ marginTop: 6 }}>
                       <div style={{ fontSize: 12, color: '#6e6e73', marginBottom: 4 }}>{u.user_name} · {Number(u.total_hours).toFixed(2)} ч</div>
-                      {u.tasks.map((t, i) => <TaskRow key={`${u.user_id}-${t.task_id}-${i}`} task={t} />)}
+                      {u.tasks.map((t, i) => <TaskRow key={`${u.user_id}-${t.task_id}-${i}`} task={t} viewMode={reportsView} />)}
                     </div>
                   ))}
                 </GroupCard>
@@ -194,7 +286,7 @@ export function ReportsScreen() {
               ))}
             </div>
           )}
-          {!isLoadingReports && !reportsError && reportView === 'occupancy' && (
+          {!isLoadingReports && !reportsError && sourceRows.length > 0 && reportsView === 'occupancy' && (
             <div style={{ display: 'grid', gap: 12 }}>
               {occupancyProjects.map((p, idx) => (
                 <GroupCard key={`occ-${p.project_id ?? 'none'}-${idx}`} title={p.project_name} total={p.total_hours}>
@@ -204,13 +296,27 @@ export function ReportsScreen() {
                         {u.user_name} · {Number(u.total_hours || 0).toFixed(2)} ч
                       </div>
                       {(u.tasks || []).map((t, i) => (
-                        <TaskRow key={`occ-${u.user_id}-${t.task_id}-${i}`} task={t} />
+                        <TaskRow key={`occ-${u.user_id}-${t.task_id}-${i}`} task={t} viewMode={reportsView} />
                       ))}
                     </div>
                   ))}
                 </GroupCard>
               ))}
             </div>
+          )}
+          {!isLoadingReports && !reportsError && reportsView === 'planning' && (
+            <PlanningView
+              planning={reportsData?.planning || null}
+              scale={reportsPlanningScale}
+              onChangeScale={setReportsPlanningScale}
+            />
+          )}
+          {!isLoadingReports && !reportsError && heatmapEnabled && reportsView === 'heatmap' && (
+            <HeatmapView
+              heatmap={reportsData?.heatmap || null}
+              scale={reportsPlanningScale}
+              onChangeScale={setReportsPlanningScale}
+            />
           )}
         </div>
       </div>
@@ -270,6 +376,41 @@ function GroupCard({ title, total, children }) {
   )
 }
 
+function ReportScopeChips({ reportsGroupMode, setReportsGroupMode, taskScopes, setTaskScopes }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+      <div style={chipGroupStyle}>
+        <button onClick={() => setReportsGroupMode('employees')} style={chipStyle(reportsGroupMode === 'employees')}>Сотрудники</button>
+        <button onClick={() => setReportsGroupMode('departments')} style={chipStyle(reportsGroupMode === 'departments')}>Отделы</button>
+        <button onClick={() => setReportsGroupMode('projects')} style={chipStyle(reportsGroupMode === 'projects')}>Проекты</button>
+      </div>
+      <div style={chipGroupStyle}>
+        <button
+          title="Статус 2: Ждёт выполнения"
+          onClick={() => toggleScope('planned', taskScopes, setTaskScopes)}
+          style={chipStyle(taskScopes.includes('planned'))}
+        >
+          Плановые (ждут выполнения)
+        </button>
+        <button
+          title="Статусы 3 и 4: Выполняется / Ждёт контроля"
+          onClick={() => toggleScope('in_work', taskScopes, setTaskScopes)}
+          style={chipStyle(taskScopes.includes('in_work'))}
+        >
+          В работе (выполняется/контроль)
+        </button>
+        <button
+          title="Статус 5: Завершена"
+          onClick={() => toggleScope('done', taskScopes, setTaskScopes)}
+          style={chipStyle(taskScopes.includes('done'))}
+        >
+          Выполненные (завершены)
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function DeptCard({ node, depth }) {
   return (
     <div style={{ ...sectionStyle, marginLeft: depth * 18 }}>
@@ -279,7 +420,7 @@ function DeptCard({ node, depth }) {
       {(node.users || []).map((u) => (
         <div key={`du-${u.user_id}`} style={{ marginBottom: 8, marginLeft: 12 }}>
           <div style={{ fontSize: 12, color: '#1d1d1f', fontWeight: 600 }}>{u.user_name} · {Number(u.total_hours || 0).toFixed(2)} ч</div>
-          {(u.tasks || []).map((t, i) => <TaskRow key={`${u.user_id}-${t.task_id}-${i}`} task={t} showProjectSuffix />)}
+          {(u.tasks || []).map((t, i) => <TaskRow key={`${u.user_id}-${t.task_id}-${i}`} task={t} showProjectSuffix viewMode={reportsView} />)}
         </div>
       ))}
       {(node.children || []).map((c) => <DeptCard key={`dch-${c.id}`} node={c} depth={depth + 1} />)}
@@ -359,6 +500,263 @@ function normalizeProjectModalData(project) {
   return { tasks, totalHours }
 }
 
+function toggleScope(scopeKey, selected, setSelected) {
+  const has = selected.includes(scopeKey)
+  if (has) {
+    // Не даём снять последний активный фильтр.
+    if (selected.length === 1) return
+    setSelected(selected.filter(k => k !== scopeKey))
+    return
+  }
+  setSelected([...selected, scopeKey])
+}
+
+function filterRowsByTaskStatus(rows, allowedStatuses) {
+  const set = new Set((allowedStatuses || []).map(Number))
+  return (rows || [])
+    .map((u) => {
+      const tasks = (u.tasks || []).filter((t) => set.has(Number(t.status_code)))
+      const total = tasks.reduce((sum, t) => sum + Number(t.fact_hours ?? t.hours ?? 0), 0)
+      if (tasks.length === 0) return null
+      return { ...u, tasks, total_hours: total }
+    })
+    .filter(Boolean)
+}
+
+function filterRowsByProject(rows, projectId) {
+  const pid = String(projectId || '').trim()
+  if (!pid) return rows || []
+  return (rows || [])
+    .map((u) => {
+      const tasks = (u.tasks || []).filter((t) => String(t.project_id ?? '') === pid)
+      const total = tasks.reduce((sum, t) => sum + Number(t.fact_hours ?? t.hours ?? 0), 0)
+      if (tasks.length === 0) return null
+      return { ...u, tasks, total_hours: total }
+    })
+    .filter(Boolean)
+}
+
+function mergeRowsByUser(groups) {
+  const merged = new Map()
+  Object.values(groups || {}).forEach((rows) => {
+    ;(rows || []).forEach((u) => {
+      const key = String(u.user_id)
+      if (!merged.has(key)) {
+        merged.set(key, {
+          ...u,
+          tasks: [],
+          total_hours: 0,
+        })
+      }
+      const dest = merged.get(key)
+      ;(u.tasks || []).forEach((t) => {
+        const tKey = [t.task_id, t.date || '', t.status_code || '', t.project_id || ''].join('|')
+        if (!dest._taskKeys) dest._taskKeys = new Set()
+        if (dest._taskKeys.has(tKey)) return
+        dest._taskKeys.add(tKey)
+        dest.tasks.push(t)
+        dest.total_hours += Number(t.fact_hours ?? t.hours ?? 0)
+      })
+    })
+  })
+  return Array.from(merged.values()).map((u) => {
+    const { _taskKeys, ...clean } = u
+    return clean
+  })
+}
+
+function TaskDateFilters({ value, onChange, onClear }) {
+  const [quickFor, setQuickFor] = React.useState('')
+  const rows = [
+    { key: 'created', label: 'Дата создания' },
+    { key: 'plan_start', label: 'Плановая дата начала' },
+    { key: 'plan_end', label: 'Плановая дата завершения' },
+    { key: 'deadline', label: 'Крайний срок' },
+    { key: 'closed', label: 'Фактическая дата завершения' },
+  ]
+  const quickItems = buildQuickDateItems()
+
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {rows.map((row) => {
+        const from = value?.[row.key]?.from || ''
+        const to = value?.[row.key]?.to || ''
+        const hasDate = Boolean(from || to)
+        return (
+          <div
+            key={row.key}
+            style={{
+              position: 'relative',
+              border: `1px solid ${hasDate ? '#b9d7ff' : '#ececf1'}`,
+              borderRadius: 8,
+              padding: 8,
+              background: hasDate ? 'rgba(0,113,227,.04)' : '#fff',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: hasDate ? '#0071e3' : '#1d1d1f' }}>
+                {row.label}
+              </div>
+              <button
+                onClick={() => setQuickFor(quickFor === row.key ? '' : row.key)}
+                style={quickOpenBtnStyle(quickFor === row.key || hasDate)}
+              >
+                Быстрый ввод
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6 }}>
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => onChange(row.key, e.target.value, to)}
+                style={dateInputStyle(Boolean(from))}
+              />
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => onChange(row.key, from, e.target.value)}
+                style={dateInputStyle(Boolean(to))}
+              />
+              <button
+                title="Очистить даты"
+                onClick={() => onClear(row.key)}
+                style={clearIconBtnStyle(hasDate)}
+              >
+                <ClearIcon />
+              </button>
+            </div>
+            {quickFor === row.key && (
+              <div style={quickPanelStyle}>
+                {quickItems.map((section, sectionIdx) => (
+                  <div key={sectionIdx}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {section.map((item) => (
+                        <button
+                          key={item.key}
+                          onClick={() => {
+                            onChange(row.key, item.from, item.to)
+                            setQuickFor('')
+                          }}
+                          style={miniPresetBtnStyle}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                    {sectionIdx < quickItems.length - 1 && <div style={quickDividerStyle} />}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function SearchableDropdown({ value, onChange, placeholder, options, onSelect }) {
+  const [open, setOpen] = React.useState(false)
+  const boxRef = React.useRef(null)
+
+  React.useEffect(() => {
+    const onDocClick = (e) => {
+      if (!boxRef.current) return
+      if (!boxRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [])
+
+  const filtered = React.useMemo(() => {
+    const q = normalizeSearch(String(value || ''))
+    if (!q) return options.slice(0, 50)
+
+    const qAltRu = normalizeSearch(convertEnToRuLayout(q))
+    const qAltLat = normalizeSearch(transliterateRuToLat(q))
+
+    return options.filter((o) => {
+      const raw = normalizeSearch(o.search || o.label || '')
+      const rawLat = normalizeSearch(transliterateRuToLat(raw))
+      return raw.includes(q) || raw.includes(qAltRu) || rawLat.includes(q) || rawLat.includes(qAltLat)
+    }).slice(0, 50)
+  }, [options, value])
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <input
+        value={value}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+        }}
+        placeholder={placeholder}
+        style={inputStyle}
+      />
+      {open && filtered.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            zIndex: 30,
+            background: '#fff',
+            border: '1px solid #d2d2d7',
+            borderRadius: 10,
+            boxShadow: '0 8px 24px rgba(0,0,0,.12)',
+            maxHeight: 260,
+            overflowY: 'auto',
+            padding: 4,
+          }}
+        >
+          {filtered.map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => {
+                onSelect(opt)
+                setOpen(false)
+              }}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                border: 'none',
+                background: 'transparent',
+                padding: '8px 10px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: 14,
+                color: '#1d1d1f',
+                lineHeight: 1.3,
+                whiteSpace: 'normal',
+                wordBreak: 'break-word',
+              }}
+              title={opt.label}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ClearIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+      <path
+        d="M4.2 4.2l5.6 5.6M9.8 4.2L4.2 9.8"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 const cardStyle = { background: '#fff', border: '1px solid #e9e9ed', borderRadius: 12, padding: 12 }
 const titleStyle = { fontSize: 14, color: '#1d1d1f', fontWeight: 700 }
 const inputStyle = { width: '100%', border: '1px solid #d2d2d7', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit' }
@@ -386,4 +784,158 @@ const chipStyle = (active) => ({
   cursor: 'pointer',
   fontFamily: 'inherit',
 })
+const miniPresetBtnStyle = {
+  border: '1px solid #d2d2d7',
+  background: '#fff',
+  color: '#1d1d1f',
+  borderRadius: 999,
+  padding: '3px 7px',
+  fontSize: 11,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+}
+const quickOpenBtnStyle = (active) => ({
+  border: `1px solid ${active ? '#0071e3' : '#d2d2d7'}`,
+  background: active ? 'rgba(0,113,227,.08)' : '#fff',
+  color: active ? '#0071e3' : '#1d1d1f',
+  borderRadius: 999,
+  padding: '3px 8px',
+  fontSize: 11,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
+})
+const quickPanelStyle = {
+  marginTop: 8,
+  border: '1px solid #e5e5ea',
+  borderRadius: 10,
+  background: '#fafafd',
+  padding: 8,
+}
+const quickDividerStyle = {
+  height: 1,
+  background: '#e5e5ea',
+  margin: '8px 0',
+}
+const clearIconBtnStyle = (active) => ({
+  width: 30,
+  height: 34,
+  border: `1px solid ${active ? '#ffd0cb' : '#d2d2d7'}`,
+  background: active ? 'rgba(255,59,48,.06)' : '#fff',
+  color: active ? '#ff3b30' : '#8e8e93',
+  borderRadius: 8,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  padding: 0,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+})
+
+const dateInputStyle = (active) => ({
+  ...inputStyle,
+  border: `1px solid ${active ? '#0071e3' : '#d2d2d7'}`,
+  background: active ? '#f5faff' : '#fff',
+})
+
+function buildQuickDateItems() {
+  const today = new Date()
+  const startOfToday = dateOnly(today)
+  const currentWeekStart = startOfWeek(today)
+  const currentWeekEnd = addDays(currentWeekStart, 6)
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+  const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+  const currentQuarterStart = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1)
+  const currentQuarterEnd = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3 + 3, 0)
+  const currentYearStart = new Date(today.getFullYear(), 0, 1)
+  const currentYearEnd = new Date(today.getFullYear(), 11, 31)
+
+  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+  const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
+  const thisQuarterStart = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1)
+  const lastQuarterStart = new Date(thisQuarterStart.getFullYear(), thisQuarterStart.getMonth() - 3, 1)
+  const lastQuarterEnd = new Date(thisQuarterStart.getFullYear(), thisQuarterStart.getMonth(), 0)
+
+  const future7End = addDays(startOfToday, 6)
+  const future30End = addDays(startOfToday, 29)
+  const futureQuarterEnd = addDays(startOfToday, 89)
+  const futureYearEnd = addDays(startOfToday, 364)
+
+  return [
+    [
+      { key: 'cur_week', label: 'Текущая неделя', from: fmt(currentWeekStart), to: fmt(currentWeekEnd) },
+      { key: 'cur_month', label: 'Текущий месяц', from: fmt(currentMonthStart), to: fmt(currentMonthEnd) },
+      { key: 'cur_quarter', label: 'Текущий квартал', from: fmt(currentQuarterStart), to: fmt(currentQuarterEnd) },
+      { key: 'cur_year', label: 'Текущий год', from: fmt(currentYearStart), to: fmt(currentYearEnd) },
+    ],
+    [
+      { key: 'last_7', label: 'Последние 7 дней', from: fmt(addDays(startOfToday, -6)), to: fmt(startOfToday) },
+      { key: 'last_month', label: 'Последний месяц', from: fmt(lastMonthStart), to: fmt(lastMonthEnd) },
+      { key: 'last_quarter', label: 'Последний квартал', from: fmt(lastQuarterStart), to: fmt(lastQuarterEnd) },
+    ],
+    [
+      { key: 'next_7', label: 'Ближайшие 7 дней', from: fmt(startOfToday), to: fmt(future7End) },
+      { key: 'next_30', label: 'Ближайшие 30 дней', from: fmt(startOfToday), to: fmt(future30End) },
+      { key: 'next_quarter', label: 'Ближайший квартал', from: fmt(startOfToday), to: fmt(futureQuarterEnd) },
+      { key: 'next_year', label: 'Ближайший год', from: fmt(startOfToday), to: fmt(futureYearEnd) },
+    ],
+  ]
+}
+
+function startOfWeek(d) {
+  const x = dateOnly(d)
+  const day = (x.getDay() + 6) % 7
+  x.setDate(x.getDate() - day)
+  return x
+}
+
+function addDays(d, days) {
+  const x = dateOnly(d)
+  x.setDate(x.getDate() + days)
+  return x
+}
+
+function dateOnly(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function fmt(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function normalizeSearch(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function convertEnToRuLayout(s) {
+  const map = {
+    q: 'й', w: 'ц', e: 'у', r: 'к', t: 'е', y: 'н', u: 'г', i: 'ш', o: 'щ', p: 'з',
+    '[': 'х', ']': 'ъ', a: 'ф', s: 'ы', d: 'в', f: 'а', g: 'п', h: 'р', j: 'о', k: 'л',
+    l: 'д', ';': 'ж', "'": 'э', z: 'я', x: 'ч', c: 'с', v: 'м', b: 'и', n: 'т', m: 'ь',
+    ',': 'б', '.': 'ю', '`': 'ё',
+  }
+  return String(s || '')
+    .split('')
+    .map((ch) => map[ch] || ch)
+    .join('')
+}
+
+function transliterateRuToLat(s) {
+  const map = {
+    а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y',
+    к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f',
+    х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+  }
+  return String(s || '')
+    .split('')
+    .map((ch) => map[ch] ?? ch)
+    .join('')
+}
 
