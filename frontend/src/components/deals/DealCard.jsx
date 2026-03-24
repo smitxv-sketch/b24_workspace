@@ -1,6 +1,7 @@
 import React from 'react'
 import { ACCENT, formatDate } from '../../utils/index.js'
 import { useWorkspaceStore } from '../../store/useWorkspaceStore.js'
+import { MetroLine } from './MetroLine.jsx'
 
 export function DealCard({ item }) {
   const openSheet = useWorkspaceStore(s => s.openSheet)
@@ -42,20 +43,12 @@ export function DealCard({ item }) {
     step: { fontSize: 13, color: '#6e6e73', marginBottom: 8, letterSpacing: '-.01em' },
     meta: { fontSize: 12, color: '#8e8e93', marginBottom: 9, letterSpacing: '-.01em' },
     actions: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 },
-    actionBtnPrimary: {
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 12, fontWeight: 500, padding: '5px 10px', borderRadius: 10,
-      textDecoration: 'none', letterSpacing: '-.01em',
-      background: '#0071e3', color: '#fff', border: '0.5px solid rgba(0,0,0,.08)',
-    },
     actionBtnSecondary: {
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
       fontSize: 12, fontWeight: 500, padding: '5px 10px', borderRadius: 10,
       textDecoration: 'none', letterSpacing: '-.01em',
       background: '#fff', color: '#3a3a3c', border: '0.5px solid rgba(0,0,0,.12)',
     },
-    pbWrap: { height: 3, background: 'rgba(0,0,0,.07)', borderRadius: 2, overflow: 'hidden', marginBottom: 8 },
-    pbFill: { height: '100%', borderRadius: 2, background: accent.stripe, width: item.progress_percent + '%', transition: 'width .4s ease' },
     foot: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
     avatars: { display: 'flex' },
     hint: { fontSize: 10, color: '#aeaeb2', letterSpacing: '-.01em' },
@@ -86,12 +79,12 @@ export function DealCard({ item }) {
         {' · '}
         {item.days_in_work !== null && item.days_in_work !== undefined ? `${item.days_in_work} дн. в работе` : '—'}
       </div>
-      {item.current_step_label && (
+      {item.current_step && !['_done', '_complete'].includes(item.current_step) && item.current_step_label && (
         <div style={s.step}>
           Сейчас: <strong style={{ color: '#3a3a3c', fontWeight: 500 }}>{item.current_step_label}</strong>
         </div>
       )}
-      <div style={s.pbWrap}><div style={s.pbFill} /></div>
+      <MetroLine steps={item.steps_preview || []} />
       <div style={s.foot}>
         <div style={s.avatars}>
           {(item.participants_preview || []).map((p, i) => (
@@ -101,15 +94,6 @@ export function DealCard({ item }) {
         <div style={s.hint}>{item.hint}</div>
       </div>
       <div style={s.actions}>
-        <a
-          href={item.entity_url}
-          target="_blank"
-          rel="noreferrer"
-          onClick={e => e.stopPropagation()}
-          style={s.actionBtnPrimary}
-        >
-          ↗ Открыть в Bitrix24
-        </a>
         {item.folder_url && (
           <a
             href={item.folder_url}

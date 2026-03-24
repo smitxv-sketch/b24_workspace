@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useWorkspaceStore } from '../../store/useWorkspaceStore.js'
 import { ALERT, AVATAR, formatHours, formatRelativeTime } from '../../utils/index.js'
+import { SheetMetroLine } from './SheetMetroLine.jsx'
 
 export function Sheet() {
   const { isSheetOpen, dealDetail, isLoadingDetail, closeSheet } = useWorkspaceStore()
@@ -91,7 +92,7 @@ function SheetContent({ detail }) {
       {/* Timeline */}
       {sections.includes('timeline') && detail.timeline?.length > 0 && (
         <Section title="Ход процесса">
-          <Timeline steps={detail.timeline} />
+          <SheetMetroLine steps={detail.timeline} />
         </Section>
       )}
 
@@ -168,52 +169,6 @@ function ParticipantChip({ p }) {
         <div style={{ fontSize: 10, color: '#86868b' }}>{p.role_label}</div>
       </div>
       <div style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-    </div>
-  )
-}
-
-function Timeline({ steps }) {
-  return (
-    <div>
-      {steps.map((step, i) => {
-        const isLast = i === steps.length - 1
-        const dotColor = step.state === 'done' ? '#34c759' : step.state === 'late' ? '#ff3b30' : step.state === 'current' ? '#0071e3' : '#e5e5ea'
-        const glow     = step.state === 'current' ? '0 0 0 3px rgba(0,113,227,.15)' : step.state === 'late' ? '0 0 0 3px rgba(255,59,48,.15)' : 'none'
-        return (
-          <div key={step.step_key} style={{ display: 'flex', gap: 10, padding: '1px 0' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 14, flexShrink: 0 }}>
-              <div style={{ width: 12, height: 12, borderRadius: '50%', background: dotColor, boxShadow: glow, zIndex: 1, flexShrink: 0 }} />
-              {!isLast && <div style={{ width: 1, flex: 1, background: 'rgba(0,0,0,.08)', minHeight: 12 }} />}
-            </div>
-            <div style={{ flex: 1, paddingBottom: isLast ? 0 : 13 }}>
-              <div style={{
-                fontSize: 13, fontWeight: step.state === 'current' || step.state === 'late' ? 600 : 500,
-                color: step.state === 'current' ? '#0071e3' : step.state === 'late' ? '#ff3b30' : step.state === 'pending' ? '#aeaeb2' : '#1d1d1f',
-                letterSpacing: '-.02em',
-              }}>
-                {step.label}{(step.state === 'current' || step.state === 'late') && ' ← сейчас'}
-              </div>
-              {step.timing && (
-                <div style={{ fontSize: 11, color: '#86868b', marginTop: 1, letterSpacing: '-.01em' }}>
-                  {step.timing}
-                  {step.is_overdue && <span style={{ display: 'inline-block', fontSize: 9, color: '#ff3b30', background: 'rgba(255,59,48,.1)', padding: '1px 5px', borderRadius: 5, marginLeft: 4 }}>{step.overdue_label}</span>}
-                </div>
-              )}
-              {step.voters?.length > 0 && (
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
-                  {step.voters.map((v, vi) => (
-                    <span key={vi} style={{
-                      fontSize: 11, padding: '2px 7px', borderRadius: 8, letterSpacing: '-.01em',
-                      background: v.verdict === 'approve' ? 'rgba(52,199,89,.1)' : 'rgba(255,149,0,.1)',
-                      color: v.verdict === 'approve' ? '#34c759' : '#ff9500',
-                    }}>{v.name} — {v.label}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )
-      })}
     </div>
   )
 }

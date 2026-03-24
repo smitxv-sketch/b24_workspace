@@ -149,6 +149,7 @@ try {
 
         // Участники (превью аватаров)
         $participantsPreview = buildParticipantsPreview($config, $docFields, $state, $currentStep);
+        $stepsPreview = buildStepsPreview($stepsConfig, $state, $currentStep, $overdue);
 
         $item = [
             'id'                  => 'DEAL_' . $docId,
@@ -178,6 +179,7 @@ try {
             'deadline_hours'      => $deadlineH,
             'hint'                => $hint,
             'participants_preview'=> $participantsPreview,
+            'steps_preview'       => $stepsPreview,
             'section'             => $section,
         ];
 
@@ -354,4 +356,20 @@ function getInitials(string $name): string {
     $parts = explode(' ', trim($name));
     if (count($parts) >= 2) return mb_strtoupper(mb_substr($parts[0],0,1).mb_substr($parts[1],0,1));
     return mb_strtoupper(mb_substr($name,0,2));
+}
+
+function buildStepsPreview(array $stepsConfig, array $state, ?string $currentStep, array $overdue): array {
+    $preview = [];
+    foreach ($stepsConfig as $stepKey => $stepCfg) {
+        if (in_array($stepCfg['type'] ?? '', ['auto', 'final'], true)) continue;
+        $stepStatus = (string)($state['stages'][$stepKey]['status'] ?? 'wait');
+        $isCurrent = ($stepKey === $currentStep);
+        $preview[] = [
+            'key' => $stepKey,
+            'label' => $stepCfg['label'] ?? $stepKey,
+            'state' => $isCurrent ? 'current' : ($stepStatus === 'done' ? 'done' : 'pending'),
+            'is_over' => $isCurrent && !empty($overdue['is_overdue']),
+        ];
+    }
+    return $preview;
 }
