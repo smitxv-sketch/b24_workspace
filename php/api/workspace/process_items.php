@@ -12,11 +12,12 @@ define('NO_KEEP_STATISTIC', true);
 define('NO_AGENT_STATISTIC', true);
 define('NOT_CHECK_PERMISSIONS', true);
 
-require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_before.php';
-require_once $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/lib/BpLog.php';
-require_once $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/lib/BpStorage.php';
-require_once $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/config_bp_constants.php';
-require_once $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/config_process_steps.php';
+require_once __DIR__ . '/_paths.php';
+require_once wsDocPath('/bitrix/modules/main/include/prolog_before.php');
+require_once wsDocPath(wsBprocLibRoot() . '/BpLog.php');
+require_once wsDocPath(wsBprocLibRoot() . '/BpStorage.php');
+require_once wsDocPath(wsBprocRoot() . '/config_bp_constants.php');
+require_once wsDocPath(wsBprocRoot() . '/config_process_steps.php');
 require_once __DIR__ . '/_shared.php';
 
 BpLog::registerFatalHandler('ws_process_items');
@@ -42,10 +43,9 @@ try {
 
     // 1. Загружаем конфиги
     $wsCfg      = wsLoadWorkspaceConfig($processKey);
-    $procCfg    = findProcessConfig($processKey);
-    if (!$wsCfg || !$procCfg) wsJsonErr('process_not_found', 404);
+    $config     = wsLoadProcessConfig($processKey);
+    if (!$wsCfg || !$config) wsJsonErr('process_not_found', 404);
 
-    $config       = $procCfg['config'];
     $categoryId   = $config['match']['categoryId'] ?? 1;
     $entityTypeId = $config['match']['entityTypeId'] ?? 2;
 

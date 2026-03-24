@@ -194,8 +194,9 @@
 </div>
 
 <script>
-// База API в текущем проекте (файл открыт из /local/ws/php/api/workspace/)
-const BASE = '/local/ws/php/api/workspace/';
+// База API вычисляется автоматически из URL test.html
+// Пример: /local/ws/php/api/workspace/test.html -> /local/ws/php/api/workspace/
+const BASE = new URL('./', window.location.href).pathname;
 let currentEndpoint = 'bootstrap';
 let lastRawJson = '';
 
@@ -259,7 +260,11 @@ async function run() {
     try {
       data = JSON.parse(raw);
     } catch (parseErr) {
-      throw new Error('Сервер вернул не JSON. HTTP ' + res.status + '. Начало ответа: ' + raw.slice(0, 180));
+      throw new Error(
+        'Сервер вернул не JSON. HTTP ' + res.status +
+        '. URL: ' + url +
+        '. Начало ответа: ' + raw.slice(0, 180)
+      );
     }
 
     lastRawJson = JSON.stringify(data, null, 2);
@@ -325,7 +330,8 @@ function copyJson() {
 // Проверка авторизации
 async function checkAuth() {
   try {
-    const res  = await fetch(BASE + 'bootstrap.php?debug=N', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const authUrl = BASE + 'bootstrap.php?debug=N';
+    const res  = await fetch(authUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
     const raw  = await res.text();
     const data = JSON.parse(raw);
     const pill = document.getElementById('auth-pill');
@@ -340,7 +346,8 @@ async function checkAuth() {
       pill.style.color = '#f87171';
     }
   } catch(e) {
-    document.getElementById('auth-pill').textContent = '? Нет соединения';
+    document.getElementById('auth-pill').textContent = '? Ошибка auth';
+    document.getElementById('auth-pill').title = e.message || 'Не удалось выполнить bootstrap';
   }
 }
 

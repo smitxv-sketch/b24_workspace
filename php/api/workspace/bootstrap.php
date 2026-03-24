@@ -9,10 +9,11 @@ define('NO_KEEP_STATISTIC', true);
 define('NO_AGENT_STATISTIC', true);
 define('NOT_CHECK_PERMISSIONS', true);
 
-require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_before.php';
-require_once $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/lib/BpLog.php';
-require_once $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/lib/BpStorage.php';
-require_once $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/config_bp_constants.php';
+require_once __DIR__ . '/_paths.php';
+require_once wsDocPath('/bitrix/modules/main/include/prolog_before.php');
+require_once wsDocPath(WS_BPROC_LIB_ROOT . '/BpLog.php');
+require_once wsDocPath(WS_BPROC_LIB_ROOT . '/BpStorage.php');
+require_once wsDocPath(WS_BPROC_ROOT . '/config_bp_constants.php');
 
 // ── Инициализация логирования ─────────────────────────────────────────────
 BpLog::registerFatalHandler('ws_bootstrap');
@@ -101,9 +102,10 @@ try {
 
 function loadWorkspaceRoleProfile(string $roleKey): array {
     $safe = preg_replace('/[^a-z0-9_]/', '', strtolower($roleKey));
-    $path = $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/workspace_roles/' . $safe . '.php';
+    // Пути берём из SSOT-файла _paths.php
+    $path = wsDocPath(WS_BPROC_ROLES_DIR . '/' . $safe . '.php');
     if (!file_exists($path)) {
-        $path = $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/workspace_roles/_default.php';
+        $path = wsDocPath(WS_BPROC_ROLES_DIR . '/_default.php');
     }
     if (!file_exists($path)) {
         return ['role_key' => '_default', 'label' => 'Сотрудник', 'processes' => [], 'analytics_processes' => []];
@@ -114,7 +116,7 @@ function loadWorkspaceRoleProfile(string $roleKey): array {
 
 function loadWorkspaceConfig(string $processKey): ?array {
     $safe = preg_replace('/[^a-z0-9_]/', '', $processKey);
-    $path = $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/processes/' . $safe . '_workspace.php';
+    $path = wsDocPath(WS_BPROC_PROCESSES_DIR . '/' . $safe . '_workspace.php');
     if (!file_exists($path)) return null;
     $cfg = require $path;
     return is_array($cfg) ? $cfg : null;

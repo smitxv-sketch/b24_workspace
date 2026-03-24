@@ -28,16 +28,39 @@ function wsJsonErr(string $msg, int $code = 400): void {
 
 function wsLoadWorkspaceConfig(string $processKey): ?array {
     $safe = preg_replace('/[^a-z0-9_]/', '', $processKey);
-    $path = $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/processes/' . $safe . '_workspace.php';
+    // Путь к workspace-конфигу процесса берём из единого реестра путей.
+    $path = wsDocPath(WS_BPROC_PROCESSES_DIR . '/' . $safe . '_workspace.php');
     if (!file_exists($path)) return null;
     $cfg = require $path;
     return is_array($cfg) ? $cfg : null;
 }
 
+function wsLoadProcessConfig(string $processKey): ?array {
+    $safe = preg_replace('/[^a-z0-9_]/', '', $processKey);
+
+    // Сначала пробуем стандартный проектный хелпер, если он подключен в окружении.
+    if (function_exists('findProcessConfig')) {
+        $cfg = findProcessConfig($safe);
+        if (is_array($cfg) && isset($cfg['config']) && is_array($cfg['config'])) {
+            return $cfg['config'];
+        }
+    }
+
+    // Fallback: читаем основной конфиг напрямую из /local/bproc/processes/<key>.php
+    $path = wsDocPath(WS_BPROC_PROCESSES_DIR . '/' . $safe . '.php');
+    if (!file_exists($path)) return null;
+
+    $cfg = require $path;
+    if (!is_array($cfg)) return null;
+
+    // Нормализуем формат: где-то файл возвращает ['config' => [...]], где-то сразу [...]
+    return isset($cfg['config']) && is_array($cfg['config']) ? $cfg['config'] : $cfg;
+}
+
 function wsLoadRoleProfile(string $roleKey): array {
     $safe = preg_replace('/[^a-z0-9_]/', '', strtolower($roleKey));
-    $path = $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/workspace_roles/' . $safe . '.php';
-    if (!file_exists($path)) $path = $_SERVER['DOCUMENT_ROOT'] . '/local/bproc/workspace_roles/_default.php';
+    $path = wsDocPath(WS_BPROC_ROLES_DIR . '/' . $safe . '.php');
+    if (!file_exists($path)) $path = wsDocPath(WS_BPROC_ROLES_DIR . '/_default.php');
     if (!file_exists($path)) return ['role_key'=>'_default','label'=>'Сотрудник','processes'=>[],'analytics_processes'=>[]];
     $cfg = require $path;
     return is_array($cfg) ? $cfg : [];
